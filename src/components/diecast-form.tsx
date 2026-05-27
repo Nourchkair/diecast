@@ -5,9 +5,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import type { VehicleType, Condition, DiecastItem } from '@prisma/client';
 import { Camera, ImageUp, X } from 'lucide-react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import * as Tesseract from 'tesseract.js';
-import { buildDisplayName, normalizeTerm } from '@/lib/normalize';
+import { buildDisplayName } from '@/lib/normalize';
 import type { MatchCandidate } from '@/lib/match';
 import { brandOptions, colorOptions, vehicleTypes } from '@/lib/constants';
 import { inferDiecastFields } from '@/lib/diecast-inference';
@@ -43,77 +41,13 @@ type Props = {
 };
 
 type ScanSummary = {
-  rawText: string;
-  barcode: string | null;
-  suggestions: Partial<Pick<FormValues, 'displayName' | 'brand' | 'make' | 'model' | 'year' | 'vehicleType' | 'productCode' | 'barcode'>>;
+  isDiecast: boolean;
+  confidence: number;
+  summary: string;
+  signals: string[];
+  suggestions: Partial<Pick<FormValues, 'displayName' | 'brand' | 'make' | 'model' | 'year' | 'vehicleType' | 'scale' | 'series' | 'color' | 'variant' | 'productCode' | 'barcode'>>;
   matches: MatchCandidate[];
 };
-
-type BarcodeItem = {
-  id: string;
-  displayName: string;
-  brand: string;
-  make: string;
-  model: string;
-  year: number | null;
-  scale: string | null;
-  variant: string | null;
-  quantityOwned: number;
-};
-
-const diecastSignals = [
-  'diecast',
-  'scale model',
-  'model car',
-  'toy car',
-  'car culture',
-  'mainline',
-  'premium',
-  'collector',
-  'collectors',
-  'treasure hunt',
-  'super treasure hunt',
-  'limited edition',
-  'hot wheels',
-  'matchbox',
-  'majorette',
-  'tomica',
-  'mini gt',
-  'tarmac works',
-  'inno64',
-  'greenlight',
-  'auto world',
-  'johnny lightning',
-  'maisto',
-  'bburago',
-  'kyosho',
-  'solido',
-  'welly',
-  'norev',
-  'corgi',
-  'dinky',
-  'siku',
-];
-
-function looksLikeDiecastScan(rawText: string, barcode: string | null, inferred: ReturnType<typeof inferDiecastFields>, ocrMatches: MatchCandidate[], barcodeMatches: MatchCandidate[]) {
-  const source = normalizeTerm(rawText);
-  if (!source) return barcodeMatches.length > 0;
-
-  let score = 0;
-  if (barcode) score += 1;
-  if (barcodeMatches.length) score += 4;
-  if (ocrMatches.length) score += 3;
-  if (brandOptions.some((option) => source.includes(normalizeTerm(option.value)))) score += 2;
-  if (diecastSignals.some((signal) => source.includes(normalizeTerm(signal)))) score += 2;
-  if (/\b1\s*[:/\-]\s*(18|24|32|43|64)\b/i.test(rawText) || /\b1\s*(18|24|32|43|64)\b/i.test(rawText)) score += 2;
-  if (inferred.brand) score += 1;
-  if (inferred.make) score += 1;
-  if (inferred.model) score += 1;
-  if (inferred.year) score += 1;
-  if (inferred.vehicleType && inferred.vehicleType !== 'OTHER') score += 1;
-
-  return score >= 5;
-}
 
 function toDateInput(value?: string | Date | null) {
   if (!value) return '';
@@ -213,6 +147,10 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
             ? suggestions.vehicleType
             : prev.vehicleType
           : prev.vehicleType,
+      scale: prev.scale.trim() || suggestions.scale || prev.scale,
+      series: prev.series.trim() || suggestions.series || prev.series,
+      color: prev.color.trim() || suggestions.color || prev.color,
+      variant: prev.variant.trim() || suggestions.variant || prev.variant,
       productCode: prev.productCode.trim() || suggestions.productCode || prev.productCode,
       barcode: prev.barcode.trim() || suggestions.barcode || prev.barcode,
     }));
@@ -249,96 +187,52 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
     setScanError(null);
     setScanSummary(null);
 
-    const barcodeReader = new BrowserMultiFormatReader();
-    const imageUrl = URL.createObjectURL(file);
-
     try {
-      const [ocrResult, barcodeResult] = await Promise.all([
-        Tesseract.recognize(file, 'eng', {
-          logger: (message) => {
-            if (jobId !== scanJobRef.current) return;
-            if (message.status === 'recognizing text') setScanProgress(Math.round(message.progress * 100));
-          },
-        }),
-        barcodeReader.decodeFromImageUrl(imageUrl).then((result) => result.getText()).catch(() => null),
-      ]);
+      const body = new FormData();
+      body.append('file', file);
+
+      const response = await fetch('/api/scan/ai', {
+        method: 'POST',
+        body,
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error ?? 'AI scan failed');
+      }
 
       if (jobId !== scanJobRef.current) return false;
 
-      const rawText = ocrResult.data.text.replace(/\s+/g, ' ').trim();
-      const inferred = inferDiecastFields(rawText);
-      const response = rawText
-        ? await fetch('/api/scan/ocr', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              rawText,
-              brand: inferred.brand || form.brand,
-              make: inferred.make || form.make,
-              model: inferred.model || form.model,
-              series: form.series,
-              barcode: barcodeResult ?? form.barcode,
-            }),
-          })
-        : null;
-
-      const ocrData = response ? await response.json().catch(() => null) : null;
-      const barcodeResponse = barcodeResult
-        ? await fetch('/api/scan/barcode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ barcode: barcodeResult }),
-          })
-        : null;
-      const barcodeData = barcodeResponse ? await barcodeResponse.json().catch(() => null) : null;
-      const ocrMatches: MatchCandidate[] = Array.isArray(ocrData?.matches) ? ocrData.matches : [];
-      const barcodeMatches: MatchCandidate[] = Array.isArray(barcodeData?.directMatches)
-        ? barcodeData.directMatches.map((item: BarcodeItem) => ({
-            id: item.id,
-            displayName: item.displayName,
-            brand: item.brand,
-            make: item.make,
-            model: item.model,
-            year: item.year,
-            scale: item.scale,
-            variant: item.variant,
-            quantityOwned: item.quantityOwned,
-            score: 100,
-            reason: ['barcode match'],
-          }))
-        : [];
-      const matches = Array.from(new Map([...ocrMatches, ...barcodeMatches].map((match) => [match.id, match])).values());
-      const extracted = ocrData?.extracted ?? {};
-      const accepted = looksLikeDiecastScan(rawText, barcodeResult, inferred, ocrMatches, barcodeMatches);
-
-      if (!accepted) {
-        setScanError('This does not look like a diecast. Try the box, front card, or the car with the branding and scale visible.');
+      if (!data?.isDiecast || typeof data?.confidence !== 'number' || data.confidence < 0.65) {
+        setScanError(data?.summary || 'This does not look like a diecast. Try again with the box, card, or car clearly visible.');
         setScanSummary(null);
         return false;
       }
 
-      const year = extracted.year ? String(extracted.year) : inferred.year ?? '';
-      const displayName = (extracted.displayName ?? '').trim() || buildDisplayName({
-        year: year ? Number(year) : null,
-        brand: inferred.brand || form.brand,
-        make: inferred.make || form.make,
-        model: inferred.model || form.model,
-        variant: form.variant,
-      });
-
       const suggestions: ScanSummary['suggestions'] = {
-        displayName,
-        brand: inferred.brand || form.brand,
-        make: inferred.make || form.make,
-        model: inferred.model || form.model,
-        year,
-        vehicleType: inferred.vehicleType || form.vehicleType,
-        productCode: extracted.productCode || '',
-        barcode: barcodeResult || '',
+        displayName: data.suggestions?.displayName || '',
+        brand: data.suggestions?.brand || '',
+        make: data.suggestions?.make || '',
+        model: data.suggestions?.model || '',
+        year: data.suggestions?.year || '',
+        vehicleType: data.suggestions?.vehicleType || 'OTHER',
+        scale: data.suggestions?.scale || '',
+        series: data.suggestions?.series || '',
+        color: data.suggestions?.color || '',
+        variant: data.suggestions?.variant || '',
+        productCode: data.suggestions?.productCode || '',
+        barcode: data.suggestions?.barcode || '',
       };
 
       applyScanSuggestions(suggestions);
-      setScanSummary({ rawText, barcode: barcodeResult, suggestions, matches });
+      setScanSummary({
+        isDiecast: data.isDiecast,
+        confidence: data.confidence,
+        summary: data.summary || '',
+        signals: Array.isArray(data.signals) ? data.signals : [],
+        suggestions,
+        matches: Array.isArray(data.matches) ? data.matches : [],
+      });
       return true;
     } catch (scanFailure) {
       if (jobId !== scanJobRef.current) return false;
@@ -347,7 +241,6 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
     } finally {
       if (jobId === scanJobRef.current) setScanning(false);
       setScanProgress(0);
-      URL.revokeObjectURL(imageUrl);
     }
   }
 
@@ -605,16 +498,24 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
             {scanSummary ? (
               <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">Scan complete</p>
-                  <p className="mt-1 text-sm text-zinc-300">Fields were auto-filled from the photo. Review them, then save.</p>
+                  <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">AI scan complete</p>
+                  <p className="mt-1 text-sm text-zinc-300">Confidence {Math.round(scanSummary.confidence * 100)}%. Review the fields, then save.</p>
+                  {scanSummary.summary ? <p className="mt-2 text-sm text-zinc-400">{scanSummary.summary}</p> : null}
                 </div>
                 <div className="grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
                   <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Display name</span><span className="mt-1 block text-white">{scanSummary.suggestions.displayName || '—'}</span></div>
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Barcode</span><span className="mt-1 block text-white">{scanSummary.barcode || 'Not found'}</span></div>
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Barcode</span><span className="mt-1 block text-white">{scanSummary.suggestions.barcode || 'Not found'}</span></div>
                   <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Brand</span><span className="mt-1 block text-white">{scanSummary.suggestions.brand || '—'}</span></div>
                   <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Make / Model</span><span className="mt-1 block text-white">{[scanSummary.suggestions.make, scanSummary.suggestions.model].filter(Boolean).join(' ') || '—'}</span></div>
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Scale</span><span className="mt-1 block text-white">{scanSummary.suggestions.scale || '—'}</span></div>
                   <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 sm:col-span-2"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Vehicle type</span><span className="mt-1 block text-white">{scanSummary.suggestions.vehicleType || '—'}</span></div>
                 </div>
+                {scanSummary.signals.length ? (
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Signals</p>
+                    <p className="mt-1 text-white">{scanSummary.signals.slice(0, 6).join(' • ')}</p>
+                  </div>
+                ) : null}
                 {scanSummary.matches.length ? (
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Possible duplicates</p>
