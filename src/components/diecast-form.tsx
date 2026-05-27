@@ -5,7 +5,10 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import type { VehicleType, Condition, DiecastItem } from '@prisma/client';
 import { Camera, ImageUp, X } from 'lucide-react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import * as Tesseract from 'tesseract.js';
 import { buildDisplayName } from '@/lib/normalize';
+import type { MatchCandidate } from '@/lib/match';
 import { brandOptions, colorOptions, vehicleTypes } from '@/lib/constants';
 import { inferDiecastFields } from '@/lib/diecast-inference';
 
@@ -39,6 +42,25 @@ type Props = {
   onSavedHref?: string;
 };
 
+type ScanSummary = {
+  rawText: string;
+  barcode: string | null;
+  suggestions: Partial<Pick<FormValues, 'displayName' | 'brand' | 'make' | 'model' | 'year' | 'vehicleType' | 'productCode' | 'barcode'>>;
+  matches: MatchCandidate[];
+};
+
+type BarcodeItem = {
+  id: string;
+  displayName: string;
+  brand: string;
+  make: string;
+  model: string;
+  year: number | null;
+  scale: string | null;
+  variant: string | null;
+  quantityOwned: number;
+};
+
 function toDateInput(value?: string | Date | null) {
   if (!value) return '';
   const date = typeof value === 'string' ? new Date(value) : value;
@@ -59,10 +81,15 @@ function vehicleTypeLabel(value: VehicleType) {
 export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: Props) {
   const router = useRouter();
   const cameraCloseTimerRef = useRef<number | null>(null);
+  const scanJobRef = useRef(0);
   const cameraFileInputRef = useRef<HTMLInputElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
@@ -118,6 +145,25 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function applyScanSuggestions(suggestions: ScanSummary['suggestions']) {
+    setForm((prev) => ({
+      ...prev,
+      displayName: prev.displayName.trim() || suggestions.displayName || prev.displayName,
+      brand: prev.brand.trim() || suggestions.brand || prev.brand,
+      make: prev.make.trim() || suggestions.make || prev.make,
+      model: prev.model.trim() || suggestions.model || prev.model,
+      year: prev.year.trim() || suggestions.year || prev.year,
+      vehicleType:
+        prev.vehicleType === 'AUTO' || prev.vehicleType === 'OTHER'
+          ? suggestions.vehicleType && suggestions.vehicleType !== 'OTHER'
+            ? suggestions.vehicleType
+            : prev.vehicleType
+          : prev.vehicleType,
+      productCode: prev.productCode.trim() || suggestions.productCode || prev.productCode,
+      barcode: prev.barcode.trim() || suggestions.barcode || prev.barcode,
+    }));
+  }
+
   function openCameraPanel() {
     if (cameraCloseTimerRef.current) window.clearTimeout(cameraCloseTimerRef.current);
     setCameraOpen(true);
@@ -140,6 +186,106 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
       uploaded.push(data.filePath as string);
     }
     return uploaded;
+  }
+
+  async function analyzeCapturedPhoto(file: File) {
+    const jobId = ++scanJobRef.current;
+    setScanning(true);
+    setScanProgress(0);
+    setScanError(null);
+    setScanSummary(null);
+
+    const barcodeReader = new BrowserMultiFormatReader();
+    const imageUrl = URL.createObjectURL(file);
+
+    try {
+      const [ocrResult, barcodeResult] = await Promise.all([
+        Tesseract.recognize(file, 'eng', {
+          logger: (message) => {
+            if (jobId !== scanJobRef.current) return;
+            if (message.status === 'recognizing text') setScanProgress(Math.round(message.progress * 100));
+          },
+        }),
+        barcodeReader.decodeFromImageUrl(imageUrl).then((result) => result.getText()).catch(() => null),
+      ]);
+
+      if (jobId !== scanJobRef.current) return;
+
+      const rawText = ocrResult.data.text.replace(/\s+/g, ' ').trim();
+      const inferred = inferDiecastFields(rawText);
+      const response = rawText
+        ? await fetch('/api/scan/ocr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              rawText,
+              brand: inferred.brand || form.brand,
+              make: inferred.make || form.make,
+              model: inferred.model || form.model,
+              series: form.series,
+              barcode: barcodeResult ?? form.barcode,
+            }),
+          })
+        : null;
+
+      const ocrData = response ? await response.json().catch(() => null) : null;
+      const barcodeResponse = barcodeResult
+        ? await fetch('/api/scan/barcode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ barcode: barcodeResult }),
+          })
+        : null;
+      const barcodeData = barcodeResponse ? await barcodeResponse.json().catch(() => null) : null;
+      const ocrMatches: MatchCandidate[] = Array.isArray(ocrData?.matches) ? ocrData.matches : [];
+      const barcodeMatches: MatchCandidate[] = Array.isArray(barcodeData?.directMatches)
+        ? barcodeData.directMatches.map((item: BarcodeItem) => ({
+            id: item.id,
+            displayName: item.displayName,
+            brand: item.brand,
+            make: item.make,
+            model: item.model,
+            year: item.year,
+            scale: item.scale,
+            variant: item.variant,
+            quantityOwned: item.quantityOwned,
+            score: 100,
+            reason: ['barcode match'],
+          }))
+        : [];
+      const matches = Array.from(new Map([...ocrMatches, ...barcodeMatches].map((match) => [match.id, match])).values());
+      const extracted = ocrData?.extracted ?? {};
+
+      const year = extracted.year ? String(extracted.year) : inferred.year ?? '';
+      const displayName = (extracted.displayName ?? '').trim() || buildDisplayName({
+        year: year ? Number(year) : null,
+        brand: inferred.brand || form.brand,
+        make: inferred.make || form.make,
+        model: inferred.model || form.model,
+        variant: form.variant,
+      });
+
+      const suggestions: ScanSummary['suggestions'] = {
+        displayName,
+        brand: inferred.brand || form.brand,
+        make: inferred.make || form.make,
+        model: inferred.model || form.model,
+        year,
+        vehicleType: inferred.vehicleType || form.vehicleType,
+        productCode: extracted.productCode || '',
+        barcode: barcodeResult || '',
+      };
+
+      applyScanSuggestions(suggestions);
+      setScanSummary({ rawText, barcode: barcodeResult, suggestions, matches });
+    } catch (scanFailure) {
+      if (jobId !== scanJobRef.current) return;
+      setScanError(scanFailure instanceof Error ? scanFailure.message : 'Scan failed');
+    } finally {
+      if (jobId === scanJobRef.current) setScanning(false);
+      setScanProgress(0);
+      URL.revokeObjectURL(imageUrl);
+    }
   }
 
   async function checkMatches() {
@@ -365,7 +511,7 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:opacity-95"
               >
                 <ImageUp className="h-4 w-4" />
-                Take photo
+                Take & scan photo
               </button>
             </div>
 
@@ -377,10 +523,53 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0] ?? null;
-                if (file) setSelectedFiles((current) => [...current, file]);
+                if (file) {
+                  setSelectedFiles((current) => [...current, file]);
+                  void analyzeCapturedPhoto(file);
+                }
                 e.currentTarget.value = '';
               }}
             />
+
+            {scanning ? (
+              <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">
+                Scanning photo... {scanProgress ? `${scanProgress}%` : 'Starting'}
+              </div>
+            ) : null}
+
+            {scanError ? <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">{scanError}</p> : null}
+
+            {scanSummary ? (
+              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">Scan complete</p>
+                  <p className="mt-1 text-sm text-zinc-300">Fields were auto-filled from the photo. Review them, then save.</p>
+                </div>
+                <div className="grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Display name</span><span className="mt-1 block text-white">{scanSummary.suggestions.displayName || '—'}</span></div>
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Barcode</span><span className="mt-1 block text-white">{scanSummary.barcode || 'Not found'}</span></div>
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Brand</span><span className="mt-1 block text-white">{scanSummary.suggestions.brand || '—'}</span></div>
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Make / Model</span><span className="mt-1 block text-white">{[scanSummary.suggestions.make, scanSummary.suggestions.model].filter(Boolean).join(' ') || '—'}</span></div>
+                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 sm:col-span-2"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Vehicle type</span><span className="mt-1 block text-white">{scanSummary.suggestions.vehicleType || '—'}</span></div>
+                </div>
+                {scanSummary.matches.length ? (
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Possible duplicates</p>
+                    <div className="mt-2 space-y-2">
+                      {scanSummary.matches.slice(0, 3).map((match) => (
+                        <div key={match.id} className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-white">{match.displayName}</span>
+                            <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-200">score {match.score}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">{match.reason.join(' • ')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {previewImages.length ? (
               <div className="mt-4 grid grid-cols-3 gap-3 md:grid-cols-4">
