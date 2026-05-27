@@ -15,11 +15,19 @@ export default async function CollectionPage({ searchParams }: { searchParams: S
   const user = await requireCurrentUser();
   const params = await searchParams;
   const query = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, first(value)]));
-  const [items, brandRows] = await Promise.all([
-    listItems(query, user.id),
-    prisma.diecastItem.findMany({ where: { userId: user.id }, select: { brand: true }, orderBy: { brand: 'asc' } }),
-  ]);
-  const brands = Array.from(new Set(brandRows.map((row) => row.brand))).sort((a, b) => a.localeCompare(b));
+  let items: Awaited<ReturnType<typeof listItems>> = [];
+  let brands: string[] = [];
+
+  try {
+    const [loadedItems, brandRows] = await Promise.all([
+      listItems(query, user.id),
+      prisma.diecastItem.findMany({ where: { userId: user.id }, select: { brand: true }, orderBy: { brand: 'asc' } }),
+    ]);
+    items = loadedItems;
+    brands = Array.from(new Set(brandRows.map((row) => row.brand))).sort((a, b) => a.localeCompare(b));
+  } catch (error) {
+    console.error('Failed to load collection', error);
+  }
 
   return (
     <div className="space-y-6 pb-8">

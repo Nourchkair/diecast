@@ -13,7 +13,17 @@ export default async function StatsPage({ searchParams }: { searchParams: Search
   const user = await requireCurrentUser();
   const params = await searchParams;
   const showAllRarest = first(params.rarest) === 'all';
-  const [summary, breakdowns] = await Promise.all([getSummary(user.id), getBreakdowns(user.id)]);
+  let summary = { totalCars: 0, uniqueCars: 0, wishlistCount: 0 };
+  let breakdowns = { byBrand: [], byType: [], byYear: [], byScale: [], rarest: [], vehicleTypeEnum: [] } as Awaited<ReturnType<typeof getBreakdowns>>;
+
+  try {
+    const [loadedSummary, loadedBreakdowns] = await Promise.all([getSummary(user.id), getBreakdowns(user.id)]);
+    summary = loadedSummary;
+    breakdowns = loadedBreakdowns;
+  } catch (error) {
+    console.error('Failed to load stats', error);
+  }
+
   const rarestItems = showAllRarest ? breakdowns.rarest : breakdowns.rarest.slice(0, 3);
 
   return (
