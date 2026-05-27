@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
-import { ensureUploadRoot, publicUploadPath, uploadRoot } from '@/lib/storage';
 import { randomUUID } from 'crypto';
-import { writeFile } from 'fs/promises';
 import path from 'path';
 import { createSupabaseRouteClient } from '@/lib/supabase/route';
+import { imageBucket } from '@/lib/storage';
 
 export const runtime = 'nodejs';
 
@@ -18,11 +17,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
   }
 
-  await ensureUploadRoot();
   const ext = path.extname(file.name || '').slice(0, 8) || (file.type?.split('/')[1] ? `.${file.type.split('/')[1]}` : '.bin');
-  const filename = `${Date.now()}-${randomUUID()}${ext}`;
+  const objectPath = `${user.id}/${Date.now()}-${randomUUID()}${ext}`;
   const bytes = Buffer.from(await file.arrayBuffer());
-  await writeFile(path.join(uploadRoot, filename), bytes);
+  const { error } = await supabase.storage.from(imageBucket).upload(objectPath, bytes, {
+    contentType: file.type || 'application/octet-stream',
+    upsert: false,
+  });
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  return NextResponse.json({ filePath: publicUploadPath(filename), mimeType: file.type, fileName: file.name });
+  const { data } = supabase.storage.from(imageBucket).getPublicUrl(objectPath);
+
+  return NextResponse.json({ filePath: data.publicUrl, mimeType: file.type, fileName: file.name });
 }

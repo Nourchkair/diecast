@@ -17,6 +17,15 @@ function getAllowedDevOrigins() {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'kdfnoiukofudgspimeaw.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
+    ],
+  },
 };
 
 export default nextConfig;
