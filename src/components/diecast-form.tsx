@@ -7,7 +7,7 @@ import type { VehicleType, Condition, DiecastItem } from '@prisma/client';
 import { Camera, ImageUp, X } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import * as Tesseract from 'tesseract.js';
-import { buildDisplayName } from '@/lib/normalize';
+import { buildDisplayName, normalizeTerm } from '@/lib/normalize';
 import type { MatchCandidate } from '@/lib/match';
 import { brandOptions, colorOptions, vehicleTypes } from '@/lib/constants';
 import { inferDiecastFields } from '@/lib/diecast-inference';
@@ -60,6 +60,60 @@ type BarcodeItem = {
   variant: string | null;
   quantityOwned: number;
 };
+
+const diecastSignals = [
+  'diecast',
+  'scale model',
+  'model car',
+  'toy car',
+  'car culture',
+  'mainline',
+  'premium',
+  'collector',
+  'collectors',
+  'treasure hunt',
+  'super treasure hunt',
+  'limited edition',
+  'hot wheels',
+  'matchbox',
+  'majorette',
+  'tomica',
+  'mini gt',
+  'tarmac works',
+  'inno64',
+  'greenlight',
+  'auto world',
+  'johnny lightning',
+  'maisto',
+  'bburago',
+  'kyosho',
+  'solido',
+  'welly',
+  'norev',
+  'corgi',
+  'dinky',
+  'siku',
+];
+
+function looksLikeDiecastScan(rawText: string, barcode: string | null, inferred: ReturnType<typeof inferDiecastFields>, ocrMatches: MatchCandidate[], barcodeMatches: MatchCandidate[]) {
+  const source = normalizeTerm(rawText);
+  if (!source) return barcodeMatches.length > 0;
+
+  let score = 0;
+  if (barcode) score += 1;
+  if (barcodeMatches.length) score += 4;
+  if (ocrMatches.length) score += 3;
+  if (brandOptions.some((option) => source.includes(normalizeTerm(option.value)))) score += 2;
+  if (diecastSignals.some((signal) => source.includes(normalizeTerm(signal)))) score += 2;
+  if (/\b1\s*[:/\-]\s*(18|24|32|43|64)\b/i.test(rawText) || /\b1\s*(18|24|32|43|64)\b/i.test(rawText)) score += 2;
+  if (inferred.brand) score += 1;
+  if (inferred.make) score += 1;
+  if (inferred.model) score += 1;
+  if (inferred.year) score += 1;
+  if (inferred.vehicleType && inferred.vehicleType !== 'OTHER') score += 1;
+
+  return score >= 5;
+}
 
 function toDateInput(value?: string | Date | null) {
   if (!value) return '';
@@ -209,7 +263,7 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
         barcodeReader.decodeFromImageUrl(imageUrl).then((result) => result.getText()).catch(() => null),
       ]);
 
-      if (jobId !== scanJobRef.current) return;
+      if (jobId !== scanJobRef.current) return false;
 
       const rawText = ocrResult.data.text.replace(/\s+/g, ' ').trim();
       const inferred = inferDiecastFields(rawText);
@@ -255,6 +309,13 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
         : [];
       const matches = Array.from(new Map([...ocrMatches, ...barcodeMatches].map((match) => [match.id, match])).values());
       const extracted = ocrData?.extracted ?? {};
+      const accepted = looksLikeDiecastScan(rawText, barcodeResult, inferred, ocrMatches, barcodeMatches);
+
+      if (!accepted) {
+        setScanError('This does not look like a diecast. Try the box, front card, or the car with the branding and scale visible.');
+        setScanSummary(null);
+        return false;
+      }
 
       const year = extracted.year ? String(extracted.year) : inferred.year ?? '';
       const displayName = (extracted.displayName ?? '').trim() || buildDisplayName({
@@ -278,9 +339,11 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
 
       applyScanSuggestions(suggestions);
       setScanSummary({ rawText, barcode: barcodeResult, suggestions, matches });
+      return true;
     } catch (scanFailure) {
-      if (jobId !== scanJobRef.current) return;
+      if (jobId !== scanJobRef.current) return false;
       setScanError(scanFailure instanceof Error ? scanFailure.message : 'Scan failed');
+      return false;
     } finally {
       if (jobId === scanJobRef.current) setScanning(false);
       setScanProgress(0);
@@ -523,10 +586,10 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0] ?? null;
-                if (file) {
-                  setSelectedFiles((current) => [...current, file]);
-                  void analyzeCapturedPhoto(file);
-                }
+                if (file) void (async () => {
+                  const accepted = await analyzeCapturedPhoto(file);
+                  if (accepted) setSelectedFiles((current) => [...current, file]);
+                })();
                 e.currentTarget.value = '';
               }}
             />
