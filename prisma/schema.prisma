@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum VehicleType {
+  JDM
+  MUSCLE
+  SUPERCAR
+  EXOTIC
+  CLASSIC
+  RACE
+  TRUCK
+  SUV
+  VAN
+  OFFROAD
+  RALLY
+  TUNER
+  HOT_ROD
+  FANTASY
+  MOVIE
+  OTHER
+}
+
+enum Condition {
+  SEALED
+  MINT
+  NEAR_MINT
+  GOOD
+  FAIR
+  POOR
+}
+
+enum ScanType {
+  BARCODE
+  OCR
+  PHOTO
+  MANUAL
+}
+
+enum ScanStatus {
+  DRAFT
+  REVIEWED
+  SAVED
+  FAILED
+}
+
+model DiecastItem {
+  id               String       @id @default(cuid())
+  userId           String?
+  displayName      String
+  brand            String
+  make             String
+  model            String
+  year             Int?
+  scale            String?
+  series           String?
+  vehicleType      VehicleType  @default(OTHER)
+  color            String?
+  variant          String?
+  productCode      String?
+  barcode          String?
+  condition        Condition    @default(NEAR_MINT)
+  quantityOwned    Int          @default(1)
+  isWishlist       Boolean      @default(false)
+  acquiredDate     DateTime?
+  acquiredFrom     String?
+  storageLocation  String?
+  notes            String?
+  rarityScore      Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  images           DiecastImage[]
+  tags             ItemTag[]
+
+  @@index([brand, make, model])
+  @@index([barcode])
+  @@index([productCode])
+  @@index([vehicleType])
+  @@index([userId])
+}
+
+model DiecastImage {
+  id        String      @id @default(cuid())
+  itemId    String
+  filePath  String
+  mimeType  String?
+  altText   String?
+  isPrimary Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  item      DiecastItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  userId    String?
+  name      String
+  color     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  items     ItemTag[]
+
+  @@index([userId])
+  @@unique([userId, name])
+}
+
+model ItemTag {
+  itemId String
+  tagId  String
+  item   DiecastItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  tag    Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, tagId])
+  @@index([tagId])
+}
+
+model ScanSession {
+  id           String      @id @default(cuid())
+  scanType     ScanType
+  rawBarcode   String?
+  rawOcrText   String?
+  extractedJson Json?
+  confidence   Int?
+  status       ScanStatus  @default(DRAFT)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}

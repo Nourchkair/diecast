@@ -1,0 +1,70 @@
+export const vehicleTypes = [
+  { value: 'JDM', label: 'JDM' },
+  { value: 'MUSCLE', label: 'Muscle' },
+  { value: 'SUPERCAR', label: 'Supercar' },
+  { value: 'EXOTIC', label: 'Exotic' },
+  { value: 'CLASSIC', label: 'Classic' },
+  { value: 'RACE', label: 'Race' },
+  { value: 'TRUCK', label: 'Truck' },
+  { value: 'SUV', label: 'SUV' },
+  { value: 'VAN', label: 'Van' },
+  { value: 'OFFROAD', label: 'Off-road' },
+  { value: 'RALLY', label: 'Rally' },
+  { value: 'TUNER', label: 'Tuner' },
+  { value: 'HOT_ROD', label: 'Hot Rod' },
+  { value: 'FANTASY', label: 'Fantasy' },
+  { value: 'MOVIE', label: 'Movie / TV' },
+  { value: 'OTHER', label: 'Other' },
+] as const;
+
+export const brandOptions = [
+  'Hot Wheels',
+  'Matchbox',
+  'Majorette',
+  'Tomica',
+  'GreenLight',
+  'M2 Machines',
+  'Johnny Lightning',
+  'Auto World',
+  'Maisto',
+  'Bburago',
+  'Kyosho',
+  'Mini GT',
+  'Tarmac Works',
+  'Inno64',
+  'Solido',
+  'Welly',
+  'Norev',
+  'Corgi',
+  'Dinky',
+  'Siku',
+].map((label) => ({ value: label, label })) satisfies ReadonlyArray<{ value: string; label: string }>;
+
+export const colorOptions = [
+  { value: 'Black', label: 'Black', hex: '#09090b' },
+  { value: 'White', label: 'White', hex: '#f8fafc' },
+  { value: 'Gray', label: 'Gray', hex: '#64748b' },
+  { value: 'Silver', label: 'Silver', hex: '#cbd5e1' },
+  { value: 'Gold', label: 'Gold', hex: '#f59e0b' },
+  { value: 'Red', label: 'Red', hex: '#ef4444' },
+  { value: 'Orange', label: 'Orange', hex: '#f97316' },
+  { value: 'Yellow', label: 'Yellow', hex: '#eab308' },
+  { value: 'Green', label: 'Green', hex: '#22c55e' },
+  { value: 'Teal', label: 'Teal', hex: '#14b8a6' },
+  { value: 'Blue', label: 'Blue', hex: '#3b82f6' },
+  { value: 'Purple', label: 'Purple', hex: '#8b5cf6' },
+  { value: 'Pink', label: 'Pink', hex: '#ec4899' },
+  { value: 'Brown', label: 'Brown', hex: '#92400e' },
+  { value: 'Tan', label: 'Tan', hex: '#d6b17a' },
+] as const;
+
+export const conditionOptions = [
+  { value: 'SEALED', label: 'Sealed' },
+  { value: 'MINT', label: 'Mint' },
+  { value: 'NEAR_MINT', label: 'Near mint' },
+  { value: 'GOOD', label: 'Good' },
+  { value: 'FAIR', label: 'Fair' },
+  { value: 'POOR', label: 'Poor' },
+] as const;
+
+export const defaultTags = ['JDM', 'muscle', 'supercar', 'chase', 'premium', 'fantasy'] as const;
