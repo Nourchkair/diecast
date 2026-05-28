@@ -25,6 +25,7 @@ export type ItemPayload = {
   notes?: string | null;
   tagNames?: string[];
   imagePaths?: string[];
+  removedImageIds?: string[];
 };
 
 export const itemInclude = {
@@ -65,6 +66,7 @@ export function normalizeItemInput(input: ItemPayload) {
     notes: (input.notes ?? '').trim() || null,
     tagNames: (input.tagNames ?? []).map((tag) => tag.trim()).filter(Boolean),
     imagePaths: (input.imagePaths ?? []).filter(Boolean),
+    removedImageIds: (input.removedImageIds ?? []).filter(Boolean),
   };
 }
 
@@ -208,39 +210,66 @@ export async function updateItemFromPayload(id: string, payload: ItemPayload, us
   const data = normalizeItemInput(payload);
   const rarityScore = computeRarityScore(data);
   const tags = await createOrUpdateTags(data.tagNames, userId);
+  const removedImageIds = data.removedImageIds ?? [];
 
   const existing = await prisma.diecastItem.findFirst({ where: { id, userId }, select: { id: true } });
   if (!existing) return null;
 
-  await prisma.itemTag.deleteMany({ where: { itemId: id } });
-  if (tags.length) {
-    await prisma.itemTag.createMany({ data: tags.map((tag) => ({ itemId: id, tagId: tag.id })) });
-  }
+  const newImages = data.imagePaths.map((filePath) => ({
+    filePath,
+    isPrimary: false,
+  }));
 
-  return prisma.diecastItem.update({
-    where: { id },
-    data: {
-      displayName: data.displayName,
-      brand: data.brand,
-      make: data.make,
-      model: data.model,
-      year: data.year,
-      scale: data.scale,
-      series: data.series,
-      vehicleType: data.vehicleType,
-      color: data.color,
-      variant: data.variant,
-      productCode: data.productCode,
-      barcode: data.barcode,
-      condition: data.condition,
-      quantityOwned: data.quantityOwned,
-      isWishlist: data.isWishlist,
-      acquiredDate: data.acquiredDate,
-      acquiredFrom: data.acquiredFrom,
-      storageLocation: data.storageLocation,
-      notes: data.notes,
-      rarityScore,
-    },
-    include: itemInclude,
+  return prisma.$transaction(async (tx) => {
+    await tx.itemTag.deleteMany({ where: { itemId: id } });
+    if (tags.length) {
+      await tx.itemTag.createMany({ data: tags.map((tag) => ({ itemId: id, tagId: tag.id })) });
+    }
+
+    if (removedImageIds.length) {
+      await tx.diecastImage.deleteMany({ where: { itemId: id, id: { in: removedImageIds } } });
+    }
+
+    await tx.diecastItem.update({
+      where: { id },
+      data: {
+        displayName: data.displayName,
+        brand: data.brand,
+        make: data.make,
+        model: data.model,
+        year: data.year,
+        scale: data.scale,
+        series: data.series,
+        vehicleType: data.vehicleType,
+        color: data.color,
+        variant: data.variant,
+        productCode: data.productCode,
+        barcode: data.barcode,
+        condition: data.condition,
+        quantityOwned: data.quantityOwned,
+        isWishlist: data.isWishlist,
+        acquiredDate: data.acquiredDate,
+        acquiredFrom: data.acquiredFrom,
+        storageLocation: data.storageLocation,
+        notes: data.notes,
+        rarityScore,
+      },
+    });
+
+    if (newImages.length) {
+      await tx.diecastImage.createMany({ data: newImages.map((image) => ({ itemId: id, ...image })) });
+    }
+
+    const images = await tx.diecastImage.findMany({
+      where: { itemId: id },
+      orderBy: [{ createdAt: 'asc' }],
+      select: { id: true },
+    });
+    if (images.length) {
+      await tx.diecastImage.updateMany({ where: { itemId: id }, data: { isPrimary: false } });
+      await tx.diecastImage.update({ where: { id: images[0].id }, data: { isPrimary: true } });
+    }
+
+    return tx.diecastItem.findUnique({ where: { id }, include: itemInclude });
   });
 }

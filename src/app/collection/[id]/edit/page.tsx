@@ -9,7 +9,7 @@ type Params = Promise<{ id: string }>;
 export default async function EditItemPage({ params }: { params: Params }) {
   const { id } = await params;
   const user = await requireCurrentUser();
-  const item = await prisma.diecastItem.findFirst({ where: { id, userId: user.id }, include: { tags: { include: { tag: true } } } });
+  const item = await prisma.diecastItem.findFirst({ where: { id, userId: user.id }, include: { images: { orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }] }, tags: { include: { tag: true } } } });
   if (!item) notFound();
 
   return (

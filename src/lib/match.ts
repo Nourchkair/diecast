@@ -27,6 +27,7 @@ export type MatchCandidate = {
   scale: string | null;
   variant: string | null;
   quantityOwned: number;
+  imagePath: string | null;
   score: number;
   reason: string[];
 };
@@ -39,71 +40,23 @@ export async function findMatches(input: MatchInput, userId: string): Promise<Ma
   });
 
   const normalized = {
-    brand: normalizeTerm(input.brand),
     make: normalizeTerm(input.make),
     model: normalizeTerm(input.model),
     year: input.year ?? null,
-    scale: normalizeTerm(input.scale),
-    series: normalizeTerm(input.series),
-    variant: normalizeTerm(input.variant),
-    productCode: normalizeTerm(input.productCode),
-    barcode: normalizeTerm(input.barcode),
   };
 
+  if (!normalized.make || !normalized.model || normalized.year === null) return [];
+
   return candidates
-    .map((candidate) => {
-      const reasons: string[] = [];
-      let score = 0;
+    .flatMap((candidate) => {
+      const isExactDuplicate = candidate.id !== input.id
+        && normalizeTerm(candidate.make) === normalized.make
+        && normalizeTerm(candidate.model) === normalized.model
+        && candidate.year === normalized.year;
 
-      if (normalized.barcode && normalizeTerm(candidate.barcode) === normalized.barcode) {
-        reasons.push('barcode match');
-        score += 65;
-      }
-      if (normalized.productCode && normalizeTerm(candidate.productCode) === normalized.productCode) {
-        reasons.push('product code match');
-        score += 55;
-      }
-      if (normalized.brand && normalizeTerm(candidate.brand) === normalized.brand) {
-        reasons.push('brand match');
-        score += 18;
-      }
-      if (normalized.make && normalizeTerm(candidate.make) === normalized.make) {
-        reasons.push('make match');
-        score += 16;
-      }
-      if (normalized.model && normalizeTerm(candidate.model) === normalized.model) {
-        reasons.push('model match');
-        score += 16;
-      }
-      if (normalized.year && candidate.year === normalized.year) {
-        reasons.push('year match');
-        score += 12;
-      }
-      if (normalized.scale && normalizeTerm(candidate.scale) === normalized.scale) {
-        reasons.push('scale match');
-        score += 6;
-      }
-      if (normalized.variant && normalizeTerm(candidate.variant) === normalized.variant) {
-        reasons.push('variant match');
-        score += 10;
-      }
-      if (normalized.series && normalizeTerm(candidate.series) === normalized.series) {
-        reasons.push('series match');
-        score += 6;
-      }
+      if (!isExactDuplicate) return [];
 
-      const candidateName = [candidate.brand, candidate.make, candidate.model].map(normalizeTerm).join(' ');
-      const inputName = [normalized.brand, normalized.make, normalized.model].filter(Boolean).join(' ');
-      if (inputName && candidateName.includes(inputName)) {
-        reasons.push('name overlap');
-        score += 8;
-      }
-
-      if (input.id && candidate.id === input.id) {
-        score = 0;
-      }
-
-      return {
+      return [{
         id: candidate.id,
         displayName: candidate.displayName,
         brand: candidate.brand,
@@ -113,11 +66,11 @@ export async function findMatches(input: MatchInput, userId: string): Promise<Ma
         scale: candidate.scale,
         variant: candidate.variant,
         quantityOwned: candidate.quantityOwned,
-        score,
-        reason: reasons,
-      } satisfies MatchCandidate;
+        imagePath: candidate.images.find((image) => image.isPrimary)?.filePath ?? candidate.images[0]?.filePath ?? null,
+        score: 100,
+        reason: ['exact make/model/year match'],
+      } satisfies MatchCandidate];
     })
-    .filter((candidate) => candidate.score >= 18)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
 }

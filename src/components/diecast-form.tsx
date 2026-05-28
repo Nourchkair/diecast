@@ -36,9 +36,11 @@ type FormValues = {
 
 type Props = {
   mode: 'create' | 'edit';
-  initialItem?: Partial<DiecastItem> & { tagNames?: string[] };
+  initialItem?: Partial<DiecastItem> & { tagNames?: string[]; images?: { id: string; filePath: string; isPrimary: boolean; altText: string | null }[] };
   onSavedHref?: string;
 };
+
+type ExistingImage = { id: string; filePath: string; isPrimary: boolean; altText: string | null };
 
 type ScanSummary = {
   isDiecast: boolean;
@@ -66,11 +68,48 @@ function vehicleTypeLabel(value: VehicleType) {
   return vehicleTypes.find((type) => type.value === value)?.label ?? value;
 }
 
+async function prepareImageFile(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new window.Image();
+    image.src = objectUrl;
+    await image.decode();
+
+    const maxDimension = 1600;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not process image');
+    context.drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) resolve(result);
+        else reject(new Error('Could not compress image'));
+      }, 'image/jpeg', 0.86);
+    });
+
+    return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: Props) {
   const router = useRouter();
   const cameraCloseTimerRef = useRef<number | null>(null);
   const scanJobRef = useRef(0);
   const cameraFileInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -78,9 +117,13 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
   const [error, setError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
+  const [duplicateMatches, setDuplicateMatches] = useState<MatchCandidate[] | null>(null);
+  const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [removedImageIds, setRemovedImageIds] = useState<string[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [form, setForm] = useState<FormValues>({
     id: initialItem?.id,
     displayName: initialItem?.displayName ?? '',
@@ -105,7 +148,12 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
     tagNames: initialItem?.tagNames?.join(', ') ?? '',
   });
 
+  const existingImages = useMemo<ExistingImage[]>(() => (initialItem?.images ?? []).filter((image) => !removedImageIds.includes(image.id)), [initialItem?.images, removedImageIds]);
   const previewImages = useMemo(() => selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) })), [selectedFiles]);
+  const photoItems = useMemo(() => [
+    ...existingImages.map((image) => ({ kind: 'existing' as const, ...image })),
+    ...previewImages.map((preview, index) => ({ kind: 'new' as const, index, file: preview.file, url: preview.url })),
+  ], [existingImages, previewImages]);
   const inferred = useMemo<ReturnType<typeof inferDiecastFields>>(() => (mode === 'create' ? inferDiecastFields(form.displayName) : {}), [form.displayName, mode]);
   const resolvedBrand = form.brand.trim() || inferred.brand || '';
   const resolvedMake = form.make.trim() || inferred.make || '';
@@ -167,6 +215,27 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
     cameraCloseTimerRef.current = window.setTimeout(() => setCameraOpen(false), 220);
   }
 
+  function openPhotoPicker() {
+    setPhotoPickerOpen(true);
+  }
+
+  function closePhotoPicker() {
+    setPhotoPickerOpen(false);
+  }
+
+  function removeExistingImage(imageId: string) {
+    setRemovedImageIds((current) => (current.includes(imageId) ? current : [...current, imageId]));
+  }
+
+  function removeNewImage(index: number) {
+    setSelectedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  async function addAttachmentFiles(files: File[]) {
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    setSelectedFiles((current) => [...current, ...imageFiles]);
+  }
+
   async function uploadSelectedFiles() {
     const uploaded: string[] = [];
     for (const file of selectedFiles) {
@@ -198,7 +267,7 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
 
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(data?.error ?? 'AI scan failed');
+        throw new Error(data?.error ?? `AI scan failed (${response.status})`);
       }
 
       if (jobId !== scanJobRef.current) return false;
@@ -233,6 +302,7 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
         suggestions,
         matches: Array.isArray(data.matches) ? data.matches : [],
       });
+      closeCameraPanel();
       return true;
     } catch (scanFailure) {
       if (jobId !== scanJobRef.current) return false;
@@ -247,29 +317,37 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
   async function checkMatches() {
     setChecking(true);
     setError(null);
+    setDuplicateMatches(null);
+    setDuplicateMessage(null);
     try {
       const response = await fetch('/api/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: form.id,
-            displayName: finalDisplayName,
-            brand: resolvedBrand,
-            make: resolvedMake,
-            model: resolvedModel,
-            year: resolvedYear ? Number(resolvedYear) : null,
-            scale: form.scale,
-            series: form.series,
-            vehicleType: resolvedVehicleType,
-            color: form.color,
-            variant: form.variant,
-            productCode: form.productCode,
-            barcode: form.barcode,
-          }),
+        body: JSON.stringify({
+          id: form.id,
+          displayName: finalDisplayName,
+          brand: resolvedBrand,
+          make: resolvedMake,
+          model: resolvedModel,
+          year: resolvedYear ? Number(resolvedYear) : null,
+          scale: form.scale,
+          series: form.series,
+          vehicleType: resolvedVehicleType,
+          color: form.color,
+          variant: form.variant,
+          productCode: form.productCode,
+          barcode: form.barcode,
+        }),
       });
       if (!response.ok) throw new Error('Could not check duplicates');
       const data = await response.json();
-      return data.matches ?? [];
+      const matches = Array.isArray(data.matches) ? data.matches : [];
+      if (matches.length) {
+        setDuplicateMatches(matches);
+      } else {
+        setDuplicateMessage('No duplicates found.');
+      }
+      return matches;
     } finally {
       setChecking(false);
     }
@@ -282,8 +360,8 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
     try {
       const matches = await checkMatches();
       const topMatch = matches?.[0];
-      if (topMatch && topMatch.score >= 75) {
-        const proceed = window.confirm(`Possible duplicate found: ${topMatch.displayName}. Save anyway?`);
+      if (topMatch) {
+        const proceed = window.confirm(`Exact duplicate found: ${topMatch.displayName}. Save anyway?`);
         if (!proceed) {
           setSaving(false);
           return;
@@ -316,6 +394,7 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
           notes: form.notes,
           tagNames: form.tagNames.split(',').map((tag) => tag.trim()).filter(Boolean),
           imagePaths,
+          removedImageIds: mode === 'edit' ? removedImageIds : [],
         }),
       });
       if (!response.ok) {
@@ -350,6 +429,53 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
             <Camera className="h-5 w-5" />
           </button>
         </div>
+
+        {scanSummary ? (
+          <div className="space-y-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">AI scan complete</p>
+                <p className="mt-1 text-sm text-zinc-100">Confidence {Math.round(scanSummary.confidence * 100)}%{scanSummary.isDiecast ? '' : ' · not a diecast'}</p>
+                {scanSummary.summary ? <p className="mt-2 text-sm text-zinc-300">{scanSummary.summary}</p> : null}
+              </div>
+              <button type="button" onClick={openCameraPanel} className="rounded-2xl border border-white/10 px-3 py-2 text-xs font-medium text-white">
+                Rescan
+              </button>
+            </div>
+            <div className="grid gap-2 text-sm text-zinc-200 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Display name</span><span className="mt-1 block text-white">{scanSummary.suggestions.displayName || '—'}</span></div>
+              <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Barcode</span><span className="mt-1 block text-white">{scanSummary.suggestions.barcode || 'Not found'}</span></div>
+              <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Brand</span><span className="mt-1 block text-white">{scanSummary.suggestions.brand || '—'}</span></div>
+              <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Make / Model</span><span className="mt-1 block text-white">{[scanSummary.suggestions.make, scanSummary.suggestions.model].filter(Boolean).join(' ') || '—'}</span></div>
+              <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Vehicle type</span><span className="mt-1 block text-white">{scanSummary.suggestions.vehicleType || '—'}</span></div>
+            </div>
+            {scanSummary.matches.length ? (
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Duplicates</p>
+                <div className="mt-2 space-y-2">
+                  {scanSummary.matches.slice(0, 3).map((match) => (
+                    <div key={match.id} className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+                      <div className="flex items-start gap-3">
+                        {match.imagePath ? (
+                          <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-900">
+                            <Image src={match.imagePath} alt={match.displayName} fill className="object-cover" sizes="56px" />
+                          </div>
+                        ) : null}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-white">{match.displayName}</span>
+                            <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-200">duplicate</span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">{match.reason.join(' • ')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-2 md:col-span-2">
@@ -411,24 +537,49 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
             <textarea rows={4} className="rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-white placeholder:text-zinc-600" value={form.notes} onChange={(e) => setField('notes', e.target.value)} placeholder="Special details, condition, packaging notes" />
           </label>
 
-          <label className="grid gap-2 md:col-span-2">
+          <div className="grid gap-2 md:col-span-2">
             <span className="text-sm text-zinc-300">Photos</span>
-            <input type="file" multiple accept="image/*" capture="environment" className="rounded-2xl border border-dashed border-white/15 bg-zinc-950 px-4 py-3 text-white" onChange={(e) => setSelectedFiles(Array.from(e.target.files ?? []))} />
-          </label>
+            <button
+              type="button"
+              onClick={openPhotoPicker}
+              className="inline-flex items-center justify-center rounded-2xl border border-dashed border-white/15 bg-zinc-950 px-4 py-3 text-sm text-white transition hover:bg-zinc-900"
+            >
+              Choose files{selectedFiles.length ? ` (${selectedFiles.length})` : ''}
+            </button>
+            {photoItems.length ? (
+              <div className="grid grid-cols-3 gap-2 md:grid-cols-4">
+                {photoItems.map((photo) => (
+                  <div key={photo.kind === 'existing' ? photo.id : `${photo.url}-${photo.index}`} className="relative overflow-hidden rounded-2xl bg-zinc-900">
+                    <Image
+                      src={photo.kind === 'existing' ? photo.filePath : photo.url}
+                      alt={photo.kind === 'existing' ? (photo.altText ?? 'Saved photo') : 'New photo'}
+                      width={400}
+                      height={280}
+                      unoptimized={photo.kind === 'new'}
+                      className="h-20 w-full object-cover"
+                    />
+                    <div className="absolute left-2 top-2 rounded-full bg-zinc-950/80 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+                      {photo.kind === 'existing' ? 'Saved' : 'New'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => (photo.kind === 'existing' ? removeExistingImage(photo.id) : removeNewImage(photo.index))}
+                      className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white backdrop-blur transition hover:bg-black/75"
+                      aria-label={photo.kind === 'existing' ? 'Remove saved photo' : 'Remove new photo'}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
 
           <label className="flex items-center gap-3 md:col-span-2 rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-white">
             <input type="checkbox" checked={form.isWishlist} onChange={(e) => setField('isWishlist', e.target.checked)} />
             Mark as wishlist item
           </label>
         </div>
-
-        {previewImages.length ? (
-          <div className="grid grid-cols-3 gap-3 md:grid-cols-4">
-            {previewImages.map((preview) => (
-            <Image key={preview.url} src={preview.url} alt="preview" width={400} height={280} unoptimized className="h-28 w-full rounded-2xl object-cover" />
-          ))}
-        </div>
-      ) : null}
 
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={checkMatches} disabled={checking || saving} className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm font-medium text-emerald-200 disabled:opacity-50">
@@ -439,9 +590,118 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
           </button>
         </div>
 
+        {duplicateMessage ? <p className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-300">{duplicateMessage}</p> : null}
+
+        {duplicateMatches?.length ? (
+          <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4">
+            {duplicateMatches.map((match) => (
+              <div key={match.id} className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+                <div className="flex items-start gap-3">
+                  {match.imagePath ? (
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-zinc-900">
+                      <Image src={match.imagePath} alt={match.displayName} fill className="object-cover" sizes="64px" />
+                    </div>
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-white">{match.displayName}</span>
+                      <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-200">duplicate</span>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">{match.reason.join(' • ')}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {error ? <p className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
 
       </form>
+
+      <input
+        ref={attachmentCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void (async () => {
+            try {
+              await addAttachmentFiles(files);
+            } catch (attachmentError) {
+              setError(attachmentError instanceof Error ? attachmentError.message : 'Could not add photo');
+            }
+          })();
+          e.currentTarget.value = '';
+        }}
+      />
+
+      <input
+        ref={attachmentUploadInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void (async () => {
+            try {
+              await addAttachmentFiles(files);
+            } catch (attachmentError) {
+              setError(attachmentError instanceof Error ? attachmentError.message : 'Could not add photo');
+            }
+          })();
+          e.currentTarget.value = '';
+        }}
+      />
+
+      {photoPickerOpen ? (
+        <div className="fixed inset-0 z-[100] bg-black/60" onClick={closePhotoPicker}>
+          <div
+            className="absolute inset-x-0 bottom-0 mx-auto w-[min(32rem,calc(100vw-0.75rem))] rounded-t-[2rem] border border-white/10 bg-zinc-950/95 p-4 shadow-2xl shadow-black/60 backdrop-blur-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-white/15" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">Photos</p>
+                <h3 className="mt-1 text-lg font-semibold text-white">Add a picture</h3>
+              </div>
+              <button type="button" onClick={closePhotoPicker} className="rounded-2xl border border-white/10 p-2 text-white" aria-label="Close photo picker">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  closePhotoPicker();
+                  attachmentCameraInputRef.current?.click();
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:opacity-95"
+              >
+                <Camera className="h-4 w-4" />
+                Take a picture
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closePhotoPicker();
+                  attachmentUploadInputRef.current?.click();
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                <ImageUp className="h-4 w-4" />
+                Upload picture(s)
+              </button>
+            </div>
+
+          </div>
+        </div>
+      ) : null}
 
       {cameraOpen ? (
         <div className="fixed inset-0 z-[100] bg-black/60" onClick={closeCameraPanel}>
@@ -480,8 +740,9 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
               onChange={(e) => {
                 const file = e.target.files?.[0] ?? null;
                 if (file) void (async () => {
-                  const accepted = await analyzeCapturedPhoto(file);
-                  if (accepted) setSelectedFiles((current) => [...current, file]);
+                  const prepared = await prepareImageFile(file);
+                  const accepted = await analyzeCapturedPhoto(prepared);
+                  if (accepted) setSelectedFiles((current) => [...current, prepared]);
                 })();
                 e.currentTarget.value = '';
               }}
@@ -494,46 +755,6 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
             ) : null}
 
             {scanError ? <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">{scanError}</p> : null}
-
-            {scanSummary ? (
-              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-emerald-300/80">AI scan complete</p>
-                  <p className="mt-1 text-sm text-zinc-300">Confidence {Math.round(scanSummary.confidence * 100)}%. Review the fields, then save.</p>
-                  {scanSummary.summary ? <p className="mt-2 text-sm text-zinc-400">{scanSummary.summary}</p> : null}
-                </div>
-                <div className="grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Display name</span><span className="mt-1 block text-white">{scanSummary.suggestions.displayName || '—'}</span></div>
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Barcode</span><span className="mt-1 block text-white">{scanSummary.suggestions.barcode || 'Not found'}</span></div>
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Brand</span><span className="mt-1 block text-white">{scanSummary.suggestions.brand || '—'}</span></div>
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Make / Model</span><span className="mt-1 block text-white">{[scanSummary.suggestions.make, scanSummary.suggestions.model].filter(Boolean).join(' ') || '—'}</span></div>
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Scale</span><span className="mt-1 block text-white">{scanSummary.suggestions.scale || '—'}</span></div>
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 sm:col-span-2"><span className="block text-[10px] uppercase tracking-[0.2em] text-zinc-500">Vehicle type</span><span className="mt-1 block text-white">{scanSummary.suggestions.vehicleType || '—'}</span></div>
-                </div>
-                {scanSummary.signals.length ? (
-                  <div className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Signals</p>
-                    <p className="mt-1 text-white">{scanSummary.signals.slice(0, 6).join(' • ')}</p>
-                  </div>
-                ) : null}
-                {scanSummary.matches.length ? (
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Possible duplicates</p>
-                    <div className="mt-2 space-y-2">
-                      {scanSummary.matches.slice(0, 3).map((match) => (
-                        <div key={match.id} className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-white">{match.displayName}</span>
-                            <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-200">score {match.score}</span>
-                          </div>
-                          <p className="mt-1 text-xs text-zinc-500">{match.reason.join(' • ')}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
 
             {previewImages.length ? (
               <div className="mt-4 grid grid-cols-3 gap-3 md:grid-cols-4">
