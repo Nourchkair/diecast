@@ -1,5 +1,6 @@
 import { Prisma, type VehicleType, type Condition } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { getOrCreatePersonalGarage } from '@/lib/auth';
 import { buildDisplayName, normalizeTerm } from '@/lib/normalize';
 
 export type ItemPayload = {
@@ -164,10 +165,12 @@ export async function createItemFromPayload(payload: ItemPayload, userId: string
   const data = normalizeItemInput(payload);
   const rarityScore = computeRarityScore(data);
   const tags = await createOrUpdateTags(data.tagNames, userId);
+  const garage = await getOrCreatePersonalGarage({ id: userId });
 
   return prisma.diecastItem.create({
     data: {
       userId,
+      primaryGarageId: garage.id,
       displayName: data.displayName,
       brand: data.brand,
       make: data.make,
@@ -211,6 +214,7 @@ export async function updateItemFromPayload(id: string, payload: ItemPayload, us
   const rarityScore = computeRarityScore(data);
   const tags = await createOrUpdateTags(data.tagNames, userId);
   const removedImageIds = data.removedImageIds ?? [];
+  const garage = await getOrCreatePersonalGarage({ id: userId });
 
   const existing = await prisma.diecastItem.findFirst({ where: { id, userId }, select: { id: true } });
   if (!existing) return null;
@@ -233,6 +237,7 @@ export async function updateItemFromPayload(id: string, payload: ItemPayload, us
     await tx.diecastItem.update({
       where: { id },
       data: {
+        primaryGarageId: garage.id,
         displayName: data.displayName,
         brand: data.brand,
         make: data.make,

@@ -5,68 +5,93 @@ import { prisma } from '@/lib/prisma';
 import { findMatches } from '@/lib/match';
 import { DeleteButton } from '@/components/delete-button';
 import { requireCurrentUser } from '@/lib/auth';
+import { CarSocialPanel } from '@/components/car-social-panel';
+import { canonicalFriendPair, getCarComments, hasCarFavorite, hasCarWishlist } from '@/lib/social';
 
 type Params = Promise<{ id: string }>;
 
 export default async function ItemDetailPage({ params }: { params: Params }) {
   const { id } = await params;
   const user = await requireCurrentUser();
-  const item = await prisma.diecastItem.findFirst({
-    where: { id, userId: user.id },
-    include: { images: true, tags: { include: { tag: true } } },
+  const visibleItem = await prisma.diecastItem.findUnique({
+    where: { id },
+    include: { images: true, tags: { include: { tag: true } }, garageLinks: { include: { garage: true } } },
   });
-  if (!item) notFound();
+  if (!visibleItem) notFound();
+
+  const friendship = visibleItem.userId ? await prisma.friendship.findUnique({
+    where: { userAId_userBId: canonicalFriendPair(user.id, visibleItem.userId) },
+  }).catch(() => null) : null;
+  const garageAccess = await prisma.garageItem.findFirst({
+    where: {
+      itemId: id,
+      garage: { members: { some: { userId: user.id } } },
+    },
+  });
+
+  if (visibleItem.userId !== user.id && !friendship && !garageAccess) notFound();
 
   const matches = (await findMatches({
-    id: item.id,
-    displayName: item.displayName,
-    brand: item.brand,
-    make: item.make,
-    model: item.model,
-    year: item.year,
-    vehicleType: item.vehicleType,
-    color: item.color,
-    productCode: item.productCode,
-    barcode: item.barcode,
-  }, user.id)).filter((match) => match.id !== item.id).slice(0, 4);
-  const primaryImage = item.images.find((image) => image.isPrimary) ?? item.images[0];
+    id: visibleItem.id,
+    displayName: visibleItem.displayName,
+    brand: visibleItem.brand,
+    make: visibleItem.make,
+    model: visibleItem.model,
+    year: visibleItem.year,
+    vehicleType: visibleItem.vehicleType,
+    color: visibleItem.color,
+    productCode: visibleItem.productCode,
+    barcode: visibleItem.barcode,
+  }, user.id)).filter((match) => match.id !== visibleItem.id).slice(0, 4);
+  const primaryImage = visibleItem.images.find((image) => image.isPrimary) ?? visibleItem.images[0];
+  const comments = await getCarComments(visibleItem.id);
+  const favorite = await hasCarFavorite(user.id, visibleItem.id);
+  const wishlist = await hasCarWishlist(user.id, visibleItem.id);
+  const owner = await prisma.userProfile.findUnique({ where: { userId: visibleItem.userId ?? user.id } });
 
   return (
     <div className="space-y-6 pb-8">
       <div className="flex items-center justify-between gap-3">
         <Link href="/collection" className="rounded-2xl border border-white/10 px-4 py-2 text-sm text-zinc-200">Back</Link>
         <div className="flex gap-2">
-          <Link href={`/collection/${item.id}/edit`} className="rounded-2xl px-4 py-2 text-sm font-semibold" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>Edit</Link>
-          <DeleteButton itemId={item.id} />
+          {visibleItem.userId === user.id ? (
+            <>
+              <Link href={`/collection/${visibleItem.id}/edit`} className="rounded-2xl px-4 py-2 text-sm font-semibold" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>Edit</Link>
+              <DeleteButton itemId={visibleItem.id} />
+            </>
+          ) : null}
         </div>
       </div>
 
       <section className="grid gap-5 rounded-[2.25rem] border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/20 md:grid-cols-[280px_1fr]">
         <div className="relative aspect-square overflow-hidden rounded-[1.75rem] bg-zinc-900">
-          {primaryImage ? <Image src={primaryImage.filePath} alt={item.displayName} fill className="object-cover" sizes="(max-width: 768px) 100vw, 280px" /> : <div className="flex h-full items-center justify-center text-sm text-zinc-500">No photo yet</div>}
+          {primaryImage ? <Image src={primaryImage.filePath} alt={visibleItem.displayName} fill className="object-cover" sizes="(max-width: 768px) 100vw, 280px" /> : <div className="flex h-full items-center justify-center text-sm text-zinc-500">No photo yet</div>}
         </div>
         <div className="space-y-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300/80">{item.brand}</p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">{item.displayName}</h1>
-            <p className="mt-2 text-sm text-zinc-400">{item.make} {item.model} • {item.year ?? 'Unknown year'}</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300/80">{visibleItem.brand}</p>
+            <h1 className="mt-2 text-3xl font-semibold text-white">{visibleItem.displayName}</h1>
+            <p className="mt-2 text-sm text-zinc-400">{visibleItem.make} {visibleItem.model} • {visibleItem.year ?? 'Unknown year'}</p>
+            {owner ? <p className="mt-2 text-xs text-zinc-500">Owned by {owner.displayName ?? owner.username}</p> : null}
           </div>
           <div className="flex flex-wrap gap-2 text-sm">
-            <span className="rounded-full bg-white/5 px-3 py-1 text-zinc-200">Type: {item.vehicleType}</span>
-            {item.isWishlist ? <span className="rounded-full bg-amber-400/15 px-3 py-1 text-amber-200">Wishlist</span> : null}
+            <span className="rounded-full bg-white/5 px-3 py-1 text-zinc-200">Type: {visibleItem.vehicleType}</span>
+            {wishlist ? <span className="rounded-full bg-amber-400/15 px-3 py-1 text-amber-200">Wishlist</span> : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Info label="Brand" value={item.brand} />
-            <Info label="Make" value={item.make} />
-            <Info label="Model" value={item.model} />
-            <Info label="Year" value={item.year ? String(item.year) : '—'} />
-            <Info label="Color" value={item.color ?? '—'} />
-            <Info label="Acquired" value={item.acquiredDate ? new Date(item.acquiredDate).toLocaleDateString() : '—'} />
-            <Info label="Acquired from" value={item.acquiredFrom ?? '—'} />
+            <Info label="Brand" value={visibleItem.brand} />
+            <Info label="Make" value={visibleItem.make} />
+            <Info label="Model" value={visibleItem.model} />
+            <Info label="Year" value={visibleItem.year ? String(visibleItem.year) : '—'} />
+            <Info label="Color" value={visibleItem.color ?? '—'} />
+            <Info label="Acquired" value={visibleItem.acquiredDate ? new Date(visibleItem.acquiredDate).toLocaleDateString() : '—'} />
+            <Info label="Acquired from" value={visibleItem.acquiredFrom ?? '—'} />
           </div>
-          {item.notes ? <p className="rounded-2xl border border-white/10 bg-zinc-950/80 p-4 text-sm text-zinc-300">{item.notes}</p> : null}
+          {visibleItem.notes ? <p className="rounded-2xl border border-white/10 bg-zinc-950/80 p-4 text-sm text-zinc-300">{visibleItem.notes}</p> : null}
         </div>
       </section>
+
+      <CarSocialPanel itemId={visibleItem.id} initialFavorite={favorite} initialWishlist={wishlist} comments={comments as unknown as Array<{ id: string; body: string; createdAt: string | Date; author: { displayName: string | null; username: string } }>} />
 
       <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
         <div className="flex items-center justify-between gap-3">

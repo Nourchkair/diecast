@@ -37,7 +37,10 @@ export default async function CollectionPage({ searchParams }: { searchParams: S
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-white">Collection results</h2>
+          <h2 className="text-lg font-semibold text-white">Your Garage</h2>
+          <Link href="/garages" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10">
+            Enter Shared garages
+          </Link>
         </div>
         {items.length ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

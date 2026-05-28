@@ -49,9 +49,231 @@ enum ScanStatus {
   FAILED
 }
 
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
+enum GarageType {
+  PERSONAL
+  SHARED
+}
+
+enum ActivityType {
+  ADDED_CAR
+  FAVORITED_CAR
+  WISHLISTED_CAR
+  COMMENTED_CAR
+  CREATED_GARAGE
+  JOINED_GARAGE
+  SHARED_CAR
+  FEATURED_CAR
+  FRIEND_REQUEST_SENT
+  FRIEND_REQUEST_ACCEPTED
+}
+
+enum SpotlightSource {
+  AUTO
+  MANUAL
+}
+
+model UserProfile {
+  userId           String          @id
+  username         String          @unique
+  email            String?         @unique
+  displayName      String?
+  bio              String?
+  avatarUrl        String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  personalGarage   Garage?         @relation("PersonalGarageOwner")
+  sentRequests     FriendRequest[]  @relation("FriendRequestSender")
+  receivedRequests FriendRequest[]  @relation("FriendRequestReceiver")
+  friendshipsA     Friendship[]    @relation("FriendshipUserA")
+  friendshipsB     Friendship[]    @relation("FriendshipUserB")
+  garagesCreated   Garage[]        @relation("GarageCreatedBy")
+  garageMemberships GarageMember[]
+  invitesCreated   GarageInvite[]  @relation("GarageInviteCreatedBy")
+  invitesUsed      GarageInvite[]  @relation("GarageInviteUsedBy")
+  items            DiecastItem[]   @relation("UserItems")
+  garageItemsAdded GarageItem[]    @relation("GarageItemAddedBy")
+  comments         CarComment[]
+  favorites        CarFavorite[]
+  wishlists        CarWishlist[]
+  activities       ActivityEvent[] @relation("ActivityActor")
+  targetedActivities ActivityEvent[] @relation("ActivityTargetUser")
+  spotlighted      WeeklySpotlight[] @relation("SpotlightCreatedBy")
+}
+
+model FriendRequest {
+  id         String               @id @default(cuid())
+  senderId   String
+  receiverId String
+  message    String?
+  status     FriendRequestStatus  @default(PENDING)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  sender     UserProfile         @relation("FriendRequestSender", fields: [senderId], references: [userId], onDelete: Cascade)
+  receiver   UserProfile         @relation("FriendRequestReceiver", fields: [receiverId], references: [userId], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@index([senderId, status])
+}
+
+model Friendship {
+  id        String      @id @default(cuid())
+  userAId   String
+  userBId   String
+  createdAt DateTime    @default(now())
+  userA     UserProfile @relation("FriendshipUserA", fields: [userAId], references: [userId], onDelete: Cascade)
+  userB     UserProfile @relation("FriendshipUserB", fields: [userBId], references: [userId], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+model Garage {
+  id              String           @id @default(cuid())
+  name            String
+  slug            String           @unique
+  description     String?
+  type            GarageType       @default(SHARED)
+  personalOwnerId String?          @unique
+  createdByUserId  String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  personalOwner   UserProfile?     @relation("PersonalGarageOwner", fields: [personalOwnerId], references: [userId], onDelete: Cascade)
+  createdBy       UserProfile      @relation("GarageCreatedBy", fields: [createdByUserId], references: [userId], onDelete: Cascade)
+  members         GarageMember[]
+  invites         GarageInvite[]
+  items           GarageItem[]
+  spotlight       WeeklySpotlight[]
+  activities      ActivityEvent[]
+  primaryItems    DiecastItem[]    @relation("PrimaryGarage")
+}
+
+model GarageMember {
+  garageId  String
+  userId    String
+  joinedAt  DateTime    @default(now())
+  garage    Garage      @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  user      UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([garageId, userId])
+  @@index([userId])
+}
+
+model GarageInvite {
+  id            String      @id @default(cuid())
+  garageId      String
+  token         String      @unique
+  createdByUserId String
+  usedByUserId  String?
+  createdAt     DateTime    @default(now())
+  expiresAt     DateTime
+  usedAt        DateTime?
+  garage        Garage      @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  createdBy     UserProfile @relation("GarageInviteCreatedBy", fields: [createdByUserId], references: [userId], onDelete: Cascade)
+  usedBy        UserProfile? @relation("GarageInviteUsedBy", fields: [usedByUserId], references: [userId], onDelete: SetNull)
+
+  @@index([garageId])
+  @@index([expiresAt])
+}
+
+model GarageItem {
+  garageId      String
+  itemId        String
+  addedByUserId String
+  createdAt     DateTime    @default(now())
+  garage        Garage      @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  item          DiecastItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  addedBy       UserProfile @relation("GarageItemAddedBy", fields: [addedByUserId], references: [userId], onDelete: Cascade)
+
+  @@id([garageId, itemId])
+  @@index([itemId])
+}
+
+model CarFavorite {
+  userId    String
+  itemId    String
+  createdAt DateTime    @default(now())
+  user      UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  item      DiecastItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([userId, itemId])
+  @@index([itemId])
+}
+
+model CarWishlist {
+  userId    String
+  itemId    String
+  createdAt DateTime    @default(now())
+  user      UserProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  item      DiecastItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([userId, itemId])
+  @@index([itemId])
+}
+
+model CarComment {
+  id            String      @id @default(cuid())
+  itemId        String
+  authorUserId  String
+  body          String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  item          DiecastItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  author        UserProfile @relation(fields: [authorUserId], references: [userId], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([authorUserId])
+}
+
+model ActivityEvent {
+  id            String          @id @default(cuid())
+  actorUserId   String
+  type          ActivityType
+  itemId        String?
+  garageId      String?
+  targetUserId  String?
+  note          String?
+  createdAt     DateTime        @default(now())
+  actor         UserProfile     @relation("ActivityActor", fields: [actorUserId], references: [userId], onDelete: Cascade)
+  item          DiecastItem?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  garage        Garage?         @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  targetUser    UserProfile?    @relation("ActivityTargetUser", fields: [targetUserId], references: [userId], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([itemId])
+  @@index([garageId])
+  @@index([targetUserId])
+  @@index([actorUserId])
+}
+
+model WeeklySpotlight {
+  id             String         @id @default(cuid())
+  garageId       String
+  itemId         String
+  weekStart      DateTime
+  source         SpotlightSource @default(AUTO)
+  createdByUserId String
+  createdAt      DateTime       @default(now())
+  garage         Garage         @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  item           DiecastItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdBy      UserProfile    @relation("SpotlightCreatedBy", fields: [createdByUserId], references: [userId], onDelete: Cascade)
+
+  @@unique([garageId, weekStart])
+  @@index([itemId])
+}
+
 model DiecastItem {
   id               String       @id @default(cuid())
   userId           String?
+  primaryGarageId  String?
   displayName      String
   brand            String
   make             String
@@ -74,14 +296,23 @@ model DiecastItem {
   rarityScore      Int          @default(0)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+  user             UserProfile? @relation("UserItems", fields: [userId], references: [userId], onDelete: SetNull)
+  primaryGarage    Garage?      @relation("PrimaryGarage", fields: [primaryGarageId], references: [id], onDelete: SetNull)
   images           DiecastImage[]
   tags             ItemTag[]
+  garageLinks      GarageItem[]
+  favorites        CarFavorite[]
+  wishlists        CarWishlist[]
+  comments         CarComment[]
+  activity         ActivityEvent[]
+  spotlight        WeeklySpotlight[]
 
   @@index([brand, make, model])
   @@index([barcode])
   @@index([productCode])
   @@index([vehicleType])
   @@index([userId])
+  @@index([primaryGarageId])
 }
 
 model UserPreference {
