@@ -143,7 +143,7 @@ export function ItemCard({ item }: ItemCardProps) {
             <p className="mt-1 truncate text-xs text-zinc-400">{item.brand} {item.year ?? ''}</p>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-4 pl-1">
             <Link href={`/collection/${item.id}/edit`} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/10" aria-label="Edit listing">
               <PencilLine className="h-4 w-4" />
             </Link>

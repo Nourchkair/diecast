@@ -585,7 +585,7 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
           <button type="button" onClick={checkMatches} disabled={checking || saving} className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm font-medium text-emerald-200 disabled:opacity-50">
             {checking ? 'Checking…' : 'Check duplicates'}
           </button>
-          <button type="submit" disabled={saving} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950 disabled:opacity-50">
+          <button type="submit" disabled={saving} className="rounded-2xl px-4 py-3 text-sm font-semibold disabled:opacity-50" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>
             {saving ? 'Saving…' : mode === 'create' ? 'Save item' : 'Update item'}
           </button>
         </div>
@@ -681,7 +681,8 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
                   closePhotoPicker();
                   attachmentCameraInputRef.current?.click();
                 }}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:opacity-95"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition hover:opacity-95"
+                style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}
               >
                 <Camera className="h-4 w-4" />
                 Take a picture
@@ -724,7 +725,8 @@ export function DiecastForm({ mode, initialItem, onSavedHref = '/collection' }: 
               <button
                 type="button"
                 onClick={() => cameraFileInputRef.current?.click()}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:opacity-95"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition hover:opacity-95"
+                style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}
               >
                 <ImageUp className="h-4 w-4" />
                 Take & scan photo

@@ -79,7 +79,8 @@ export function LoginForm({ onModeChange }: { onModeChange?: (mode: 'login' | 's
         <button
           type="submit"
           disabled={pending}
-          className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950 disabled:opacity-60"
+          className="rounded-2xl px-4 py-3 text-sm font-semibold disabled:opacity-60"
+          style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}
         >
           {pending ? (isSignup ? 'Creating…' : 'Logging in…') : (isSignup ? 'Create account' : 'Log in')}
         </button>

@@ -33,7 +33,7 @@ export default async function CollectionPage({ searchParams }: { searchParams: S
     <div className="space-y-6 pb-8">
       <CollectionFilters key={`${query.q ?? ''}|${query.brand ?? ''}|${query.type ?? ''}|${query.sort ?? ''}|${query.wishlist ?? ''}`} searchParams={query} brands={brands} />
 
-      <Link href="/add" className="block rounded-2xl bg-emerald-400 px-4 py-3 text-center text-sm font-semibold text-zinc-950">Add car</Link>
+      <Link href="/add" className="block rounded-2xl px-4 py-3 text-center text-sm font-semibold" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>Add car</Link>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-4">

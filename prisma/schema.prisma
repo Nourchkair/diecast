@@ -84,6 +84,15 @@ model DiecastItem {
   @@index([userId])
 }
 
+model UserPreference {
+  userId             String   @id
+  accentColor        String   @default("#10b981")
+  backgroundColor    String   @default("#09090b")
+  backgroundImageUrl String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
 model DiecastImage {
   id        String      @id @default(cuid())
   itemId    String

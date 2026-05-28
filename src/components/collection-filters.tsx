@@ -255,7 +255,7 @@ export function CollectionFilters({ searchParams, brands }: Props) {
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-3">
-                  <button type="button" onClick={() => applyFilters()} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-zinc-950">
+                   <button type="button" onClick={() => applyFilters()} className="rounded-2xl px-4 py-3 text-sm font-semibold" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>
                     Apply filters
                   </button>
                   <button type="button" onClick={resetFilters} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-white">

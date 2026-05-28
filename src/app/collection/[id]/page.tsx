@@ -36,7 +36,7 @@ export default async function ItemDetailPage({ params }: { params: Params }) {
       <div className="flex items-center justify-between gap-3">
         <Link href="/collection" className="rounded-2xl border border-white/10 px-4 py-2 text-sm text-zinc-200">Back</Link>
         <div className="flex gap-2">
-          <Link href={`/collection/${item.id}/edit`} className="rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950">Edit</Link>
+          <Link href={`/collection/${item.id}/edit`} className="rounded-2xl px-4 py-2 text-sm font-semibold" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>Edit</Link>
           <DeleteButton itemId={item.id} />
         </div>
       </div>
