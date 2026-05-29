@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { listItems } from '@/lib/items';
+import { buildSearchWhere, itemInclude } from '@/lib/items';
 import { CollectionFilters } from '@/components/collection-filters';
 import { ItemCard } from '@/components/item-card';
 import { requireCurrentUser } from '@/lib/auth';
@@ -15,14 +15,15 @@ export default async function CollectionPage({ searchParams }: { searchParams: S
   const user = await requireCurrentUser();
   const params = await searchParams;
   const query = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, first(value)]));
-  let items: Awaited<ReturnType<typeof listItems>> = [];
+  let items: any[] = [];
   let brands: string[] = [];
 
   try {
-    const [loadedItems, brandRows] = await Promise.all([
-      listItems(query, user.id),
-      prisma.diecastItem.findMany({ where: { userId: user.id }, select: { brand: true }, orderBy: { brand: 'asc' } }),
-    ]);
+    const { where, orderBy } = buildSearchWhere(query, user.id);
+    const [loadedItems, brandRows] = await prisma.$transaction(async (tx) => Promise.all([
+      tx.diecastItem.findMany({ where, orderBy, include: itemInclude }),
+      tx.diecastItem.findMany({ where: { userId: user.id }, select: { brand: true }, orderBy: { brand: 'asc' } }),
+    ]));
     items = loadedItems;
     brands = Array.from(new Set(brandRows.map((row) => row.brand))).sort((a, b) => a.localeCompare(b));
   } catch (error) {

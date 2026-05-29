@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { cache } from 'react';
 import { prisma } from '@/lib/prisma';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
@@ -107,19 +108,20 @@ async function ensureSocialState(user: { id: string; email?: string | null }) {
   await getOrCreatePersonalGarage(user);
 }
 
-export async function getCurrentUser() {
+export async function bootstrapCurrentUser(user: { id: string; email?: string | null }) {
+  await claimLegacyOwnership(user.id);
+  await ensureSocialState(user);
+}
+
+export const getCurrentUser = cache(async function getCurrentUser() {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      await claimLegacyOwnership(user.id);
-      await ensureSocialState(user);
-    }
     return user ?? null;
   } catch {
     return null;
   }
-}
+});
 
 export async function requireCurrentUser() {
   const user = await getCurrentUser();

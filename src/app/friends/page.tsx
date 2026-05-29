@@ -4,7 +4,7 @@ import { requireCurrentUser } from '@/lib/auth';
 import { FriendRequestForm } from '@/components/friend-request-form';
 import { FriendRequestList } from '@/components/friend-request-list';
 import { GarageCreateForm } from '@/components/garage-create-form';
-import { getUserFeed, listFriends, listUserGarages, makeUserCode, searchProfiles } from '@/lib/social';
+import { getUserFeed, listFriendRequests, listFriends, listUserGarages, makeUserCode, searchProfiles } from '@/lib/social';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -42,19 +42,13 @@ export default async function FriendsPage({ searchParams }: { searchParams: Sear
   const params = await searchParams;
   const query = first(params.q) ?? '';
 
-  const [profile, carsTotal, profiles, friends, requests, garages, feed] = await Promise.all([
-    prisma.userProfile.findUnique({ where: { userId: user.id } }),
-    prisma.diecastItem.count({ where: { userId: user.id } }),
-    query ? searchProfiles(query, user.id) : [],
-    listFriends(user.id),
-    prisma.friendRequest.findMany({
-      where: { OR: [{ senderId: user.id }, { receiverId: user.id }], status: 'PENDING' },
-      include: { sender: true, receiver: true },
-      orderBy: { createdAt: 'desc' },
-    }),
-    listUserGarages(user.id),
-    getUserFeed(user.id),
-  ]);
+  const profile = await prisma.userProfile.findUnique({ where: { userId: user.id } });
+  const carsTotal = await prisma.diecastItem.count({ where: { userId: user.id } });
+  const profiles = query ? await searchProfiles(query, user.id) : [];
+  const friends = await listFriends(user.id);
+  const requests = await listFriendRequests(user.id);
+  const garages = await listUserGarages(user.id);
+  const feed = await getUserFeed(user.id, friends.map((friend) => friend.userId));
   const sharedGarages = garages.filter((garage) => garage.type === 'SHARED');
 
   return (

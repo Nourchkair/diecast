@@ -17,9 +17,8 @@ export default async function StatsPage({ searchParams }: { searchParams: Search
   let breakdowns = { byBrand: [], byType: [], byYear: [], byScale: [], rarest: [], vehicleTypeEnum: [] } as Awaited<ReturnType<typeof getBreakdowns>>;
 
   try {
-    const [loadedSummary, loadedBreakdowns] = await Promise.all([getSummary(user.id), getBreakdowns(user.id)]);
-    summary = loadedSummary;
-    breakdowns = loadedBreakdowns;
+    summary = await getSummary(user.id);
+    breakdowns = await getBreakdowns(user.id);
   } catch (error) {
     console.error('Failed to load stats', error);
   }

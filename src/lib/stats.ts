@@ -2,7 +2,7 @@ import { VehicleType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export async function getSummary(userId: string) {
-  const [totalCars, uniqueCars, duplicates, wishlistCount, photoCount, items] = await Promise.all([
+  const [totalCars, uniqueCars, duplicates, wishlistCount, photoCount, items] = await prisma.$transaction([
     prisma.diecastItem.aggregate({ _sum: { quantityOwned: true }, where: { userId } }),
     prisma.diecastItem.count({ where: { userId } }),
     prisma.diecastItem.aggregate({ _sum: { quantityOwned: true }, where: { userId, quantityOwned: { gt: 1 } } }),

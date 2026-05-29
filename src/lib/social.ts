@@ -149,9 +149,7 @@ export async function getGarageBySlug(slug: string, userId: string) {
   });
 }
 
-export async function getUserFeed(userId: string) {
-  const friends = await listFriends(userId);
-  const friendIds = friends.map((friend) => friend.userId);
+export async function getUserFeed(userId: string, friendIds: string[] = []) {
   const visibleActorIds = [userId, ...friendIds];
 
   return prisma.activityEvent.findMany({

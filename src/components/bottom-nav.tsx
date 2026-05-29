@@ -16,7 +16,16 @@ export function BottomNav() {
   if (pathname?.startsWith('/login')) return null;
 
   return (
-    <nav className="fixed inset-x-0 bottom-2 z-[80] px-3 sm:bottom-4 sm:px-2" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.5)' }}>
+    <nav
+      className="z-[80] px-3 sm:px-2"
+      style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)',
+        paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.5)',
+      }}
+    >
       <div className="relative mx-auto w-full max-w-[34rem] rounded-full border border-white/15 bg-zinc-950/90 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
         <div className="grid grid-cols-4 gap-1">
           {items.map((item) => {
