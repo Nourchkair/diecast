@@ -17,6 +17,9 @@ function getAllowedDevOrigins() {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
+  compiler: {
+    styledComponents: true,
+  },
   images: {
     remotePatterns: [
       {

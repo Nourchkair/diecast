@@ -4,11 +4,18 @@ import { buildSearchWhere, itemInclude } from '@/lib/items';
 import { CollectionFilters } from '@/components/collection-filters';
 import { ItemCard } from '@/components/item-card';
 import { requireCurrentUser } from '@/lib/auth';
+import { getProfileByUserId } from '@/lib/social';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function getGreeting(hour: number) {
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 export default async function CollectionPage({ searchParams }: { searchParams: SearchParams }) {
@@ -17,6 +24,7 @@ export default async function CollectionPage({ searchParams }: { searchParams: S
   const query = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, first(value)]));
   let items: any[] = [];
   let brands: string[] = [];
+  let profile = await getProfileByUserId(user.id);
 
   try {
     const { where, orderBy } = buildSearchWhere(query, user.id);
@@ -30,8 +38,16 @@ export default async function CollectionPage({ searchParams }: { searchParams: S
     console.error('Failed to load collection', error);
   }
 
+  const displayName = profile?.displayName?.trim() || profile?.username || 'there';
+  const greeting = getGreeting(new Date().getHours());
+
   return (
     <div className="space-y-6 pb-8">
+      <section className="space-y-1 px-1 pt-1">
+        <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Welcome back</p>
+        <h1 className="text-2xl font-semibold text-white sm:text-3xl">{greeting}, {displayName}</h1>
+      </section>
+
       <CollectionFilters key={`${query.q ?? ''}|${query.brand ?? ''}|${query.type ?? ''}|${query.sort ?? ''}|${query.wishlist ?? ''}`} searchParams={query} brands={brands} />
 
       <Link href="/add" className="block rounded-2xl px-4 py-3 text-center text-sm font-semibold" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-foreground)' }}>Add car</Link>

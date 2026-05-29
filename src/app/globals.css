@@ -3,6 +3,7 @@
 :root {
   --background: #09090b;
   --foreground: #f4f4f5;
+  --loader-fg: var(--foreground);
 }
 
 @theme inline {
@@ -35,4 +36,30 @@ a {
 
 button, input, select, textarea {
   font: inherit;
+}
+
+.color-swatch {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  padding: 0;
+  border-radius: 9999px;
+  background: transparent;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.color-swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-swatch::-webkit-color-swatch {
+  border: 0;
+  border-radius: 9999px;
+}
+
+.color-swatch::-moz-color-swatch {
+  border: 0;
+  border-radius: 9999px;
 }

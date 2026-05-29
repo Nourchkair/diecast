@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowLeft } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { buildBodyBackground, buildThemeVariables, normalizeThemeSettings, type ThemeSettings } from '@/lib/theme';
 
 function makeUserCode(userId: string) {
   return userId.slice(0, 8).toUpperCase();
 }
+
+type ProfileEditorView = 'profile' | 'password';
 
 type Props = {
   email: string;
@@ -32,6 +35,7 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
   const [profileDraft, setProfileDraft] = useState(initialProfile);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [profileEditorView, setProfileEditorView] = useState<ProfileEditorView>('profile');
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -158,6 +162,7 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: profileDraft.username,
+          displayName: profileDraft.displayName,
           bio: profileDraft.bio,
           avatarUrl,
         }),
@@ -171,6 +176,7 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
       setProfileDraft(data.profile);
       setAvatarFile(null);
       setProfileEditorOpen(false);
+      setProfileEditorView('profile');
       setProfileMessage('Profile saved.');
       router.refresh();
     } catch (error) {
@@ -184,7 +190,22 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
     setProfileDraft(profile);
     setAvatarFile(null);
     setSheetDragY(0);
+    setProfileEditorView('profile');
     setProfileEditorOpen(true);
+  }
+
+  function openPasswordEditor() {
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordMessage(null);
+    setProfileEditorView('password');
+  }
+
+  function backToProfileEditor() {
+    setProfileEditorView('profile');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordMessage(null);
   }
 
   function closeProfileEditor() {
@@ -193,6 +214,10 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
     setSheetDragY(0);
     sheetDragStartY.current = null;
     setProfileDraft(profile);
+    setProfileEditorView('profile');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordMessage(null);
   }
 
   function handleSheetDragStart(event: ReactPointerEvent<HTMLDivElement>) {
@@ -234,6 +259,7 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
       setNewPassword('');
       setConfirmPassword('');
       setPasswordMessage('Password updated.');
+      setProfileEditorView('profile');
     } catch (error) {
       setPasswordMessage(error instanceof Error ? error.message : 'Could not update password');
     } finally {
@@ -263,6 +289,7 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 space-y-2">
+                <p className="text-lg font-semibold text-white">{profile.displayName ?? profile.username}</p>
                 <p className="break-all text-sm text-white">{profile.email ?? email}</p>
                 <p className="text-sm text-zinc-300">@{profile.username}</p>
                 <p className="text-sm text-zinc-400">User code: {makeUserCode(profile.userId)}</p>
@@ -294,100 +321,125 @@ export function SettingsPanel({ email, initialTheme, initialProfile }: Props) {
             <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-white/20" />
           </div>
           <div className="max-h-[85vh] overflow-y-auto p-5 space-y-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Edit profile</p>
-                <h2 className="mt-2 text-lg font-semibold text-white">Update photo, username, and bio</h2>
-              </div>
-
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
-              <div className="flex h-24 w-24 flex-none items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-xl font-semibold text-white shadow-lg shadow-black/20 sm:h-28 sm:w-28" style={{ borderRadius: '9999px' }}>
-                {editorAvatarPreview ? (
-                  <img src={editorAvatarPreview} alt={profileDraft.displayName ?? profileDraft.username} className="block h-full w-full rounded-full object-cover" style={{ borderRadius: '9999px' }} />
-                ) : (
-                  <span className="leading-none">{(profileDraft.displayName ?? profileDraft.username).trim().slice(0, 2).toUpperCase()}</span>
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1 space-y-2">
-                <p className="break-all text-sm text-white">{profileDraft.email ?? email}</p>
-                <p className="text-sm text-zinc-300">@{profileDraft.username}</p>
-                <p className="text-sm text-zinc-400">User code: {makeUserCode(profileDraft.userId)}</p>
-
-                <div className="flex flex-wrap gap-2">
-                  <label className="inline-flex cursor-pointer items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-zinc-200 transition hover:bg-white/10">
-                    {avatarFile ? 'Change profile photo' : 'Upload profile photo'}
-                    <input type="file" accept="image/*" onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)} className="sr-only" />
-                  </label>
-                  {(avatarFile || profileDraft.avatarUrl) ? (
-                    <button type="button" onClick={() => { setAvatarFile(null); setProfileDraft((current) => ({ ...current, avatarUrl: null })); }} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-zinc-200 transition hover:bg-white/10">
-                      Remove photo
-                    </button>
-                  ) : null}
+            {profileEditorView === 'profile' ? (
+              <>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Edit profile</p>
+                  <h2 className="mt-2 text-lg font-semibold text-white">Update photo, display name, username, and bio</h2>
                 </div>
-              </div>
-            </div>
 
-            <div className="grid gap-3">
-              <label className="grid gap-2">
-                <span className="text-sm text-zinc-300">Username</span>
-                <input value={profileDraft.username} onChange={(event) => setProfileDraft((current) => ({ ...current, username: event.target.value }))} className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-white" placeholder="your-username" />
-              </label>
-              <label className="grid gap-2">
-                <span className="text-sm text-zinc-300">Bio</span>
-                <textarea value={profileDraft.bio ?? ''} onChange={(event) => setProfileDraft((current) => ({ ...current, bio: event.target.value }))} rows={4} className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-white" placeholder="Tell friends about your garage" />
-              </label>
-            </div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+                  <div className="flex h-24 w-24 flex-none items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-xl font-semibold text-white shadow-lg shadow-black/20 sm:h-28 sm:w-28" style={{ borderRadius: '9999px' }}>
+                    {editorAvatarPreview ? (
+                      <img src={editorAvatarPreview} alt={profileDraft.displayName ?? profileDraft.username} className="block h-full w-full rounded-full object-cover" style={{ borderRadius: '9999px' }} />
+                    ) : (
+                      <span className="leading-none">{(profileDraft.displayName ?? profileDraft.username).trim().slice(0, 2).toUpperCase()}</span>
+                    )}
+                  </div>
 
-            <div className="flex flex-wrap gap-3 pt-2">
-              <button type="button" onClick={closeProfileEditor} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-white">
-                Cancel
-              </button>
-              <button type="button" onClick={() => void saveProfile()} disabled={savingProfile} className="rounded-2xl bg-[var(--app-accent)] px-4 py-3 text-sm font-semibold text-[var(--app-accent-foreground)] disabled:opacity-50">
-                {savingProfile ? 'Saving…' : 'Save profile'}
-              </button>
-            </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <p className="break-all text-sm text-white">{profileDraft.email ?? email}</p>
+                    <p className="text-sm text-zinc-300">@{profileDraft.username}</p>
+                    <p className="text-sm text-zinc-400">User code: {makeUserCode(profileDraft.userId)}</p>
 
-            {profileMessage ? <p className="text-sm text-zinc-300">{profileMessage}</p> : null}
+                    <div className="flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-zinc-200 transition hover:bg-white/10">
+                        {avatarFile ? 'Change profile photo' : 'Upload profile photo'}
+                        <input type="file" accept="image/*" onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)} className="sr-only" />
+                      </label>
+                      {(avatarFile || profileDraft.avatarUrl) ? (
+                        <button type="button" onClick={() => { setAvatarFile(null); setProfileDraft((current) => ({ ...current, avatarUrl: null })); }} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-zinc-200 transition hover:bg-white/10">
+                          Remove photo
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <label className="grid gap-2">
+                    <span className="text-sm text-zinc-300">Display name</span>
+                    <input value={profileDraft.displayName ?? ''} onChange={(event) => setProfileDraft((current) => ({ ...current, displayName: event.target.value }))} className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-white" placeholder="What should we call you?" />
+                  </label>
+                  <label className="grid gap-2">
+                    <span className="text-sm text-zinc-300">Username</span>
+                    <input value={profileDraft.username} onChange={(event) => setProfileDraft((current) => ({ ...current, username: event.target.value }))} className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-white" placeholder="your-username" />
+                  </label>
+                  <label className="grid gap-2">
+                    <span className="text-sm text-zinc-300">Bio</span>
+                    <textarea value={profileDraft.bio ?? ''} onChange={(event) => setProfileDraft((current) => ({ ...current, bio: event.target.value }))} rows={4} className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-white" placeholder="Tell friends about your garage" />
+                  </label>
+                </div>
+
+                <button type="button" onClick={openPasswordEditor} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10">
+                  Change password
+                </button>
+
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <button type="button" onClick={closeProfileEditor} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-white">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={() => void saveProfile()} disabled={savingProfile} className="rounded-2xl bg-[var(--app-accent)] px-4 py-3 text-sm font-semibold text-[var(--app-accent-foreground)] disabled:opacity-50">
+                    {savingProfile ? 'Saving…' : 'Save profile'}
+                  </button>
+                </div>
+
+                {profileMessage ? <p className="text-sm text-zinc-300">{profileMessage}</p> : null}
+              </>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Edit profile</p>
+                    <h2 className="mt-2 text-lg font-semibold text-white">Change password</h2>
+                  </div>
+                  <button type="button" onClick={backToProfileEditor} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-200">
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+
+                <div className="grid gap-3">
+                  <label className="grid gap-2 md:col-span-2">
+                    <span className="text-sm text-zinc-300">New password</span>
+                    <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-white" placeholder="Minimum 8 characters" />
+                  </label>
+                  <label className="grid gap-2 md:col-span-2">
+                    <span className="text-sm text-zinc-300">Confirm password</span>
+                    <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-white" placeholder="Repeat new password" />
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <button type="button" onClick={backToProfileEditor} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-white">
+                    Back
+                  </button>
+                  <button type="button" onClick={() => void changePassword()} disabled={savingPassword} className="rounded-2xl bg-[var(--app-accent)] px-4 py-3 text-sm font-semibold text-[var(--app-accent-foreground)] disabled:opacity-50">
+                    {savingPassword ? 'Updating…' : 'Update password'}
+                  </button>
+                </div>
+
+                {passwordMessage ? <p className="text-sm text-zinc-300">{passwordMessage}</p> : null}
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5 space-y-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Password</p>
-          <h2 className="mt-2 text-lg font-semibold text-white">Change password</h2>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="grid gap-2 md:col-span-2">
-            <span className="text-sm text-zinc-300">New password</span>
-            <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-white" placeholder="Minimum 8 characters" />
-          </label>
-          <label className="grid gap-2 md:col-span-2">
-            <span className="text-sm text-zinc-300">Confirm password</span>
-            <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-white" placeholder="Repeat new password" />
-          </label>
-        </div>
-        <button type="button" onClick={() => void changePassword()} disabled={savingPassword} className="rounded-2xl bg-[var(--app-accent)] px-4 py-3 text-sm font-semibold text-[var(--app-accent-foreground)] disabled:opacity-50">
-          {savingPassword ? 'Updating…' : 'Update password'}
-        </button>
-        {passwordMessage ? <p className="text-sm text-zinc-300">{passwordMessage}</p> : null}
-      </section>
-
-      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5 space-y-4">
+      <section className="space-y-4 px-1 py-1">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Appearance</p>
           <h2 className="mt-2 text-lg font-semibold text-white">Theme settings</h2>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2">
+          <label className="flex items-center justify-between gap-3">
             <span className="text-sm text-zinc-300">Accent color</span>
-            <input type="color" value={theme.accentColor} onChange={(event) => setTheme((current) => ({ ...current, accentColor: event.target.value }))} className="h-12 w-full rounded-2xl border border-white/10 bg-zinc-950 p-1" />
+            <input type="color" value={theme.accentColor} onChange={(event) => setTheme((current) => ({ ...current, accentColor: event.target.value }))} className="color-swatch" />
           </label>
 
-          <label className="grid gap-2">
+          <label className="flex items-center justify-between gap-3">
             <span className="text-sm text-zinc-300">Background color</span>
-            <input type="color" value={theme.backgroundColor} onChange={(event) => setTheme((current) => ({ ...current, backgroundColor: event.target.value }))} className="h-12 w-full rounded-2xl border border-white/10 bg-zinc-950 p-1" />
+            <input type="color" value={theme.backgroundColor} onChange={(event) => setTheme((current) => ({ ...current, backgroundColor: event.target.value }))} className="color-swatch" />
           </label>
 
           <label className="grid gap-2 md:col-span-2">

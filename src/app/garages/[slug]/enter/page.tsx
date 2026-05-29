@@ -68,13 +68,13 @@ export default async function GarageEnterPage({ params, searchParams }: { params
 
   return (
     <div className="space-y-6 pb-8">
-      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+      <section className="space-y-2 px-1 pt-1">
         <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Shared garage</p>
         <h1 className="mt-2 text-2xl font-semibold text-white">{garage.name}</h1>
         {garage.description ? <p className="mt-2 text-sm text-zinc-300">{garage.description}</p> : null}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-300">
           {garage.members.map((member) => (
-            <span key={member.userId} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">{member.user.username}</span>
+            <span key={member.userId}>{member.user.username}</span>
           ))}
         </div>
       </section>

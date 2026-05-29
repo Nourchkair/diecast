@@ -6,6 +6,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { getCurrentUser } from '@/lib/auth';
 import { getUserThemeSettings } from '@/lib/preferences';
 import { buildBodyBackground, buildThemeVariables, defaultThemeSettings } from '@/lib/theme';
+import StyledComponentsRegistry from './styled-components-registry';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -37,9 +38,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           ...themeVariables,
         } as CSSProperties}
       >
-        <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 pb-[calc(8rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 lg:px-8">
-          {children}
-        </main>
+        <StyledComponentsRegistry>
+          <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 pb-[calc(8rem+env(safe-area-inset-bottom))] pt-4 sm:px-6 lg:px-8">
+            {children}
+          </main>
+        </StyledComponentsRegistry>
         <BottomNav />
       </body>
     </html>

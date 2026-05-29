@@ -31,7 +31,8 @@ export default async function ItemDetailPage({ params }: { params: Params }) {
 
   if (visibleItem.userId !== user.id && !friendship && !garageAccess) notFound();
 
-  const matches = (await findMatches({
+  const canSeeDuplicates = visibleItem.userId === user.id;
+  const matches = canSeeDuplicates ? (await findMatches({
     id: visibleItem.id,
     displayName: visibleItem.displayName,
     brand: visibleItem.brand,
@@ -42,7 +43,7 @@ export default async function ItemDetailPage({ params }: { params: Params }) {
     color: visibleItem.color,
     productCode: visibleItem.productCode,
     barcode: visibleItem.barcode,
-  }, user.id)).filter((match) => match.id !== visibleItem.id).slice(0, 4);
+  }, user.id)).filter((match) => match.id !== visibleItem.id).slice(0, 4) : [];
   const primaryImage = visibleItem.images.find((image) => image.isPrimary) ?? visibleItem.images[0];
   const comments = await getCarComments(visibleItem.id);
   const favorite = await hasCarFavorite(user.id, visibleItem.id);
@@ -93,35 +94,37 @@ export default async function ItemDetailPage({ params }: { params: Params }) {
 
       <CarSocialPanel itemId={visibleItem.id} initialFavorite={favorite} initialWishlist={wishlist} comments={comments as unknown as Array<{ id: string; body: string; createdAt: string | Date; author: { displayName: string | null; username: string } }>} />
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-white">Exact duplicates</h2>
-          <span className="text-sm text-zinc-500">Same make, model, and year</span>
-        </div>
-        {matches.length ? (
-          <div className="mt-4 space-y-2">
-            {matches.map((match) => (
-              <div key={match.id} className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
-                <div className="flex items-start gap-3">
-                  {match.imagePath ? (
-                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-zinc-900">
-                      <Image src={match.imagePath} alt={match.displayName} fill className="object-cover" sizes="64px" />
-                    </div>
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium text-white">{match.displayName}</span>
-                      <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-200">duplicate</span>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">{match.reason.join(' • ')}</div>
-                  </div>
-                </div>
-                <Link href={`/collection/${match.id}`} className="mt-2 inline-flex text-xs text-emerald-300">Open match →</Link>
-              </div>
-            ))}
+      {canSeeDuplicates ? (
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-white">Exact duplicates</h2>
+            <span className="text-sm text-zinc-500">Same make, model, and year</span>
           </div>
-        ) : <p className="mt-4 text-sm text-zinc-400">No exact duplicates found.</p>}
-      </section>
+          {matches.length ? (
+            <div className="mt-4 space-y-2">
+              {matches.map((match) => (
+                <div key={match.id} className="rounded-2xl border border-white/8 bg-zinc-950/70 p-3 text-sm text-zinc-300">
+                  <div className="flex items-start gap-3">
+                    {match.imagePath ? (
+                      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-zinc-900">
+                        <Image src={match.imagePath} alt={match.displayName} fill className="object-cover" sizes="64px" />
+                      </div>
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-white">{match.displayName}</span>
+                        <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] text-emerald-200">duplicate</span>
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">{match.reason.join(' • ')}</div>
+                    </div>
+                  </div>
+                  <Link href={`/collection/${match.id}`} className="mt-2 inline-flex text-xs text-emerald-300">Open match →</Link>
+                </div>
+              ))}
+            </div>
+          ) : <p className="mt-4 text-sm text-zinc-400">No exact duplicates found.</p>}
+        </section>
+      ) : null}
     </div>
   );
 }
